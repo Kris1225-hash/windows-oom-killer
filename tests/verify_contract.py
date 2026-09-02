@@ -1,0 +1,59 @@
+from pathlib import Path
+import ctypes
+import re
+
+root = Path(__file__).resolve().parents[1]
+header = (root / "include/oom_protocol.h").read_text()
+driver = (root / "driver/driver.c").read_text()
+service = (root / "service/main.c").read_text()
+bugcheck_runner = (root / "scripts/test-bugchecks.ps1").read_text()
+
+codes = re.findall(r"#define (OOM_FATAL_[A-Z_]+)\s+(0x[0-9A-Fa-f]+)u", header)
+assert len(codes) == 8
+assert len({int(value, 16) for _, value in codes}) == len(codes)
+
+
+class Telemetry(ctypes.Structure):
+    _fields_ = [
+        ("version", ctypes.c_uint32), ("flags", ctypes.c_uint32),
+        ("sequence", ctypes.c_uint64), ("service_pid", ctypes.c_uint32),
+        ("page_size", ctypes.c_uint32), ("backing_reason", ctypes.c_uint32),
+        ("reserved", ctypes.c_uint32), ("commit_charge_pages", ctypes.c_uint64),
+        ("commit_limit_pages", ctypes.c_uint64),
+        ("available_physical_pages", ctypes.c_uint64),
+        ("pagefile_free_pages", ctypes.c_uint64),
+    ]
+
+
+class KillRequest(ctypes.Structure):
+    _fields_ = [("telemetry", Telemetry), ("victim_pid", ctypes.c_uint32),
+                ("reserved", ctypes.c_uint32), ("victim_private_pages", ctypes.c_uint64),
+                ("victim_create_time", ctypes.c_uint64)]
+
+
+assert ctypes.sizeof(Telemetry) == 64
+assert ctypes.sizeof(KillRequest) == 88
+assert "KeBugCheckEx(code, (ULONG_PTR)t->commit_charge_pages" in driver
+assert "(ULONG_PTR)t->commit_limit_pages" in driver
+assert "(ULONG_PTR)t->available_physical_pages" in driver
+assert "OomBackingParameter(t)" in driver
+assert "PsIsProtectedProcess(process)" in driver
+assert "PsIsProtectedProcessLight(process)" in driver
+assert "PsGetProcessCreateTimeQuadPart(process) != kill->victim_create_time" in driver
+assert "ZwWaitForSingleObject(process_handle" in driver
+assert "ctx->kill_pending = FALSE" in driver
+assert "driver_config.EvtDriverUnload = OomEvtDriverUnload" in driver
+assert 'L"\\\\KernelObjects\\\\MaximumCommitCondition"' in driver
+assert "attributes.EvtCleanupCallback = OomEvtDeviceCleanup" in driver
+assert "OomEvtTimerCleanup" not in driver
+assert "IsProcessCritical(process, &critical)" in service
+assert "WTSSendMessageW(WTS_CURRENT_SERVER_HANDLE, session" in service
+assert "Microsoft-Windows-WER-SystemErrorReporting" in service
+assert 'L"LastNotifiedBugcheckRecord"' in service
+assert "FindBugcheckInfo(parsed[0])" in service
+assert "#if defined(OOM_ENABLE_TEST_IOCTL)" in header
+assert "test->confirm != OOM_TEST_CONFIRM" in driver
+assert 'L"--bugcheck-test"' in service
+assert "if (Compare-Object $expected $actual -SyncWindow 0)" in bugcheck_runner
+assert "Remove-TestTask" in bugcheck_runner
+print("driver contract verification passed")

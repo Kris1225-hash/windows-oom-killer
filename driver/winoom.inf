@@ -1,0 +1,44 @@
+[Version]
+Signature="$WINDOWS NT$"
+Class=System
+ClassGuid={4d36e97d-e325-11ce-bfc1-08002be10318}
+Provider=%ProviderName%
+DriverVer=08/31/2026,0.1.0.0
+CatalogFile=winoom.cat
+PnpLockdown=1
+
+[DestinationDirs]
+DriverCopyFiles=13
+
+[DefaultInstall.NTamd64]
+CopyFiles=DriverCopyFiles
+
+[DefaultInstall.NTamd64.Services]
+AddService=WinOomKillerDriver,0x00000002,DriverService
+
+[DefaultInstall.NTamd64.Wdf]
+KmdfService=WinOomKillerDriver,DriverWdf
+
+[DriverWdf]
+KmdfLibraryVersion=1.21
+
+[DriverCopyFiles]
+WinOomKillerDriver.sys
+
+[DriverService]
+DisplayName=%DriverDisplayName%
+ServiceType=1
+StartType=3
+ErrorControl=1
+ServiceBinary=%13%\WinOomKillerDriver.sys
+
+[SourceDisksFiles]
+WinOomKillerDriver.sys=1
+
+[SourceDisksNames]
+1=%DiskName%,,
+
+[Strings]
+ProviderName="WinOomKiller"
+DriverDisplayName="Windows OOM Killer Driver"
+DiskName="Windows OOM Killer installation media"
