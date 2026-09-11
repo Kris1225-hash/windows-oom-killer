@@ -1,0 +1,199 @@
+The Last Resort License
+Version 1, September 2026
+
+Copyright (c) 2026 Kris1225-hash
+
+Everyone is permitted to copy and distribute verbatim copies of this
+license document, but changing it is not allowed without renaming it.
+
+
+PREAMBLE
+
+  This license governs software that intervenes in the operation of a
+computer. The software it was written for selects and terminates
+processes to recover from memory commit exhaustion, and when recovery
+is impossible it deliberately crashes the operating system with a
+diagnostic bugcheck, so that the failure is recorded instead of
+suffered silently.
+
+  The license is permissive in the manner of the MIT and Expat
+licenses: you may use, study, modify, and redistribute the software,
+including for commercial purposes, on any machine you are entitled to
+administer. It differs from those licenses in deliberate ways, each
+grounded in what the software does:
+
+  First, a tool that kills processes and bugchecks machines must never
+be ambiguous about which code is running. Modified builds must carry
+their modifications on their face and must not travel under the
+original name.
+
+  Second, the warnings are part of the work. No distributor may strip
+them, soften them, or bury them where a user will not meet them before
+the software meets their processes.
+
+  Third, the software is never armed by default, and it is never
+deployed where a deliberate crash could cost lives.
+
+  The precise terms and conditions follow.
+
+
+TERMS AND CONDITIONS
+
+0. Definitions.
+
+  "This License" refers to version 1 of The Last Resort License.
+
+  "The Software" refers to the copyrightable work licensed under this
+License, in source and binary form, together with its documentation,
+installer scripts, and test tooling.
+
+  "You" is the licensee. "Modify", "Distribute", and "Contribution"
+carry their usual copyright meanings; a Contribution is any work
+intentionally submitted by a copyright holder for inclusion in the
+Software.
+
+  "Safety Notices" means every statement shipped with the Software --
+in source comments, documentation, installers, or scripts -- warning
+that the Software may terminate processes without the consent of the
+processes' owners, may deliberately crash the operating system when
+recovery fails, and must only be exercised on machines the operator is
+prepared to lose.
+
+  "Enforcement" means the operating mode in which the Software is
+permitted to terminate processes or raise bugchecks: the armed state
+in the reference implementation.
+
+1. Grant of Rights.
+
+  Permission is hereby granted, free of charge, to any person
+obtaining a copy of the Software, to deal in the Software without
+restriction other than the conditions of Sections 2 through 6,
+including without limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of the Software,
+and to permit persons to whom the Software is furnished to do so,
+subject to this License.
+
+  Each contributor hereby grants You a perpetual, worldwide,
+non-exclusive, no-charge, royalty-free, irrevocable patent license to
+make, have made, use, and distribute that contributor's Contributions,
+to the extent those Contributions are covered by patent claims the
+contributor has the right to license.
+
+2. Conditions of Redistribution.
+
+  You may Distribute copies, modified or unmodified, provided that:
+
+  a. every copy carries this License, the copyright notice above, and
+     the Safety Notices, verbatim and conspicuously;
+
+  b. every Modified Work carries a prominent notice stating that You
+     changed it, the date of the change, and a one-line summary of
+     what the change does to victim selection, thresholds, watchdog
+     behavior, or bugcheck conditions;
+
+  c. no Modified Work that alters victim selection, kill thresholds,
+     watchdog timing, safety checks, or bugcheck behavior is
+     Distributed under the original name of the Software; You must
+     give such a work a name of Your own that does not contain the
+     original name;
+
+  d. no Safety Notice is removed, weakened, reworded to reduce its
+     clarity, or relocated behind an interaction the user can skip;
+     and
+
+  e. the Software is not configured to begin Enforcement on
+     installation or boot without explicit, documented, local
+     administrative action taken by the machine's operator after
+     installation. The reference implementation installs disarmed;
+     distributions must not invert that default.
+
+3. Crash-Testing Builds.
+
+  Facilities whose purpose is to trigger bugchecks on demand -- in the
+reference implementation, the manual-crash ioctl and its command-line
+front end -- may be built, used, and Distributed only in builds that
+are clearly and permanently distinguishable from normal builds, by
+configuration name, binary naming, or equivalent, and only with their
+test-only status stated wherever the build is offered. They must not
+be present in any build presented as a production or release build.
+
+4. Deployment Covenant.
+
+  In consideration of the rights granted here, You agree not to deploy
+the Software, modified or unmodified, on any system where a deliberate
+crash, a reboot, or the termination of a process could reasonably be
+expected to cause death, serious bodily injury, or catastrophic
+physical damage, including without limitation life-support, medical,
+aviation, rail-signalling, nuclear, weapons, and industrial-control
+systems. The Software's own documentation says the same thing in
+plainer words: do not pressure-test a machine containing anything You
+care about. This covenant binds every recipient downstream of You and
+survives redistribution.
+
+5. Indemnity for Distributors and Operators.
+
+  If You Distribute the Software, or operate it in Enforcement on
+behalf of others, You agree to defend and indemnify the authors and
+copyright holders of the Software against claims arising from Your
+modifications, Your distribution, or Your operation of the Software,
+except to the extent a claim rests on the unmodified Software as
+Distributed by the original authors.
+
+6. Termination.
+
+  Your rights under this License terminate automatically if You
+violate its conditions. If the violation is cured within thirty (30)
+days of Your learning of it, and no Safety Notice was suppressed in
+the meantime, Your rights are reinstated without further action.
+Recipients who received copies from You retain their rights while they
+remain compliant.
+
+7. NO WARRANTY.
+
+  THERE IS NO WARRANTY FOR THE SOFTWARE, TO THE EXTENT PERMITTED BY
+APPLICABLE LAW. EXCEPT WHEN OTHERWISE STATED IN WRITING, THE COPYRIGHT
+HOLDERS AND/OR OTHER PARTIES PROVIDE THE SOFTWARE "AS IS" WITHOUT
+WARRANTY OF ANY KIND, EITHER EXPRESSED OR IMPLIED, INCLUDING BUT NOT
+LIMITED TO THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE. THE ENTIRE RISK AS TO THE QUALITY AND PERFORMANCE
+OF THE SOFTWARE IS WITH YOU. SHOULD THE SOFTWARE PROVE DEFECTIVE, YOU
+ASSUME THE COST OF ALL NECESSARY SERVICING, REPAIR, OR CORRECTION.
+
+  YOU EXPRESSLY ACKNOWLEDGE THAT TERMINATING PROCESSES AND RAISING
+BUGCHECKS ARE DESIGNED BEHAVIORS OF THE SOFTWARE AND NOT, IN
+THEMSELVES, DEFECTS. A MACHINE THAT CRASHES UNDER THE DOCUMENTED
+CONDITIONS HAS RECEIVED THE LAST RESORT IT WAS PROMISED.
+
+8. LIMITATION OF LIABILITY.
+
+  IN NO EVENT UNLESS REQUIRED BY APPLICABLE LAW OR AGREED TO IN
+WRITING WILL ANY COPYRIGHT HOLDER OR CONTRIBUTOR BE LIABLE TO YOU FOR
+DAMAGES, INCLUDING ANY GENERAL, SPECIAL, INCIDENTAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES ARISING OUT OF THE USE OR INABILITY TO USE THE
+SOFTWARE -- INCLUDING BUT NOT LIMITED TO TERMINATED PROCESSES, LOST
+OR CORRUPTED DATA, LOST WORK, BUGCHECKS, MINIDUMPS, REBOOTS,
+DOWNTIME, OR THE MACHINE FAILING TO BEHAVE AS THOUGH THE SOFTWARE
+WERE NOT INSTALLED -- EVEN IF SUCH HOLDER OR CONTRIBUTOR HAS BEEN
+ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+
+END OF TERMS AND CONDITIONS
+
+
+How to Apply This License to Your Work
+
+  To apply this License, attach the following notice to the work, with
+the fields filled in, and ship the full text of this License alongside
+it as a file named LICENSE:
+
+    <one line with the work's name and a brief idea of what it does.>
+    Copyright (C) <year> <name of author>
+
+    This work is licensed under The Last Resort License, Version 1.
+    You may not deploy it where a deliberate crash could cost lives,
+    and you may not remove, soften, or outrun its warnings. See the
+    LICENSE file for the full terms.
+
+  If your work also terminates processes or crashes systems on
+purpose, consider whether its users deserve a license that says so out
+loud. Most of them do.

@@ -95,3 +95,11 @@ defaults are 512 mib commit headroom and one critical sample. if pressure remain
 ## api choices
 
 the implementation follows microsoft's documented [`KeBugCheckEx`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/wdm/nf-wdm-kebugcheckex), [`ZwTerminateProcess`](https://learn.microsoft.com/en-us/windows-hardware/drivers/ddi/ntddk/nf-ntddk-zwterminateprocess), [driver process-termination constraints](https://learn.microsoft.com/en-us/windows-hardware/drivers/driversecurity/driver-security-dev-best-practices), and [memory performance APIs](https://learn.microsoft.com/en-us/windows/win32/memory/memory-performance-information).
+
+## setup guides
+
+the [setup/](setup/) directory has the step-by-step guides: building from a fresh clone ([from-scratch](setup/from-scratch.md)), installing, arming, kill-testing, bugcheck-testing, and removing on windows ([windows](setup/windows.md)), and running the portable policy and contract checks on any host ([linux](setup/linux.md)). start at [SETUP.md](setup/SETUP.md).
+
+## license
+
+the last resort license, version 1 — see [LICENSE](LICENSE). permissive like mit for use, modification, and redistribution, including commercial, with conditions shaped by what this software does: modified builds that change victim selection, thresholds, watchdog timing, safety checks, or bugcheck behavior must carry their changes on their face and may not travel under the original name; safety notices stay verbatim and conspicuous; nothing ships armed by default; crash-test builds stay visibly separate from release builds; and nobody deploys this where a deliberate crash could cost lives. the no-warranty and no-liability sections are in full caps and state the quiet part out loud: a bugcheck raised under the documented conditions is designed behavior, not a defect.
