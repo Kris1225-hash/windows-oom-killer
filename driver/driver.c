@@ -375,16 +375,16 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING registry_path
     attributes.EvtCleanupCallback = OomEvtDeviceCleanup;
     status = WdfDeviceCreate(&device_init, &attributes, &device);
     if (!NT_SUCCESS(status))
-        goto fail;
+        goto fail_init;
     status = WdfDeviceCreateSymbolicLink(device, &symlink);
     if (!NT_SUCCESS(status))
-        return status;
+        goto fail_device;
 
     WDF_OBJECT_ATTRIBUTES_INIT(&attributes);
     attributes.ParentObject = device;
     status = WdfSpinLockCreate(&attributes, &DeviceGetContext(device)->lock);
     if (!NT_SUCCESS(status))
-        return status;
+        goto fail_device;
 
     WDF_IO_QUEUE_CONFIG_INIT_DEFAULT_QUEUE(&queue_config, WdfIoQueueDispatchSequential);
     queue_config.EvtIoDeviceControl = OomEvtIoDeviceControl;
@@ -392,7 +392,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING registry_path
     attributes.ExecutionLevel = WdfExecutionLevelPassive;
     status = WdfIoQueueCreate(device, &queue_config, &attributes, WDF_NO_HANDLE);
     if (!NT_SUCCESS(status))
-        return status;
+        goto fail_device;
 
     WDF_TIMER_CONFIG_INIT_PERIODIC(&timer_config, OomEvtWatchdog, 1000);
     timer_config.AutomaticSerialization = FALSE;
@@ -400,19 +400,26 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING registry_path
     attributes.ParentObject = device;
     status = WdfTimerCreate(&timer_config, &attributes, &timer);
     if (!NT_SUCCESS(status))
-        return status;
+        goto fail_device;
 
     DeviceGetContext(device)->maximum_commit_event = IoCreateNotificationEvent(
         &maximum_commit_name, &DeviceGetContext(device)->maximum_commit_handle);
-    if (!DeviceGetContext(device)->maximum_commit_event)
-        return STATUS_OBJECT_NAME_NOT_FOUND;
+    if (!DeviceGetContext(device)->maximum_commit_event) {
+        status = STATUS_OBJECT_NAME_NOT_FOUND;
+        goto fail_device;
+    }
 
     WdfControlFinishInitializing(device);
     WdfTimerStart(timer, WDF_REL_TIMEOUT_IN_MS(1000));
     return STATUS_SUCCESS;
 
-fail:
+fail_init:
     if (device_init)
         WdfDeviceInitFree(device_init);
+    return status;
+
+fail_device:
+    /* device_init was consumed by WdfDeviceCreate. Returning failure from
+     * DriverEntry lets KMDF tear down the driver object and its children. */
     return status;
 }

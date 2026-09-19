@@ -550,9 +550,14 @@ int wmain(int argc, wchar_t **argv)
         return RunBugcheckTest(argc, argv);
 #endif
     if (argc == 2 && !wcscmp(argv[1], L"--console")) {
+        DWORD error;
         console_mode = TRUE;
         stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
-        return (int)RunMonitor();
+        if (!stop_event)
+            return (int)GetLastError();
+        error = RunMonitor();
+        CloseHandle(stop_event);
+        return (int)error;
     }
     if (!StartServiceCtrlDispatcherW(services))
         return (int)GetLastError();
