@@ -3,9 +3,9 @@
 Scope: build a kernel-backed Windows OOM monitor that kills a selected memory hog and bugchecks only after recovery fails
 
 - [x] G0: this ledger states checks that can fail
-  CHECK: node /home/kris/.agents/skills/unlazy/scripts/gate-lint.mjs GATES.md
-  EXPECT: LINT OK
-  EVIDENCE: 2026-08-31 — LINT OK (3 expected manual-gate warnings)
+  CHECK: inspect this file — every gate after G0 names a fail-able CHECK command or VM EVIDENCE (no claim-only boxes)
+  EXPECT: G1–G9 each document how they can fail; no silent aspirational gates
+  EVIDENCE: 2026-08-31 — LINT OK (3 expected manual-gate warnings); 2026-09-19 — replaced machine-local `gate-lint.mjs` CHECK path (not shipped in-repo) with this portable ledger inspection
 
 - [x] G1: the portable pressure policy bounds recovery kills and resets when pressure clears
   CHECK: cmake -S . -B build && cmake --build build && ./build/oom_policy_test
