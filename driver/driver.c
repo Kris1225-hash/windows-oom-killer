@@ -364,7 +364,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT driver_object, PUNICODE_STRING registry_path
         return STATUS_INSUFFICIENT_RESOURCES;
     status = WdfDeviceInitAssignName(device_init, &device_name);
     if (!NT_SUCCESS(status))
-        goto fail;
+        goto fail_init;
     WdfDeviceInitSetDeviceType(device_init, FILE_DEVICE_UNKNOWN);
     WdfDeviceInitSetExclusive(device_init, TRUE);
     WDF_FILEOBJECT_CONFIG_INIT(&file_config, WDF_NO_EVENT_CALLBACK,
