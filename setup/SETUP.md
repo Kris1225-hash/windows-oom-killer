@@ -34,6 +34,13 @@ facts below are drawn from the README, GATES.md evidence, and the source.
   license (LICENSE, section 3) requires crash-test builds to stay
   distinguishable.
 
+- **one installer, online or offline.** `WinOomKillerSetup.exe`
+  (`installer/`) installs and uninstalls on the running windows via the
+  scm, or with `--target D:\` into an offline windows from WinRE by
+  writing its registry hives directly. github actions builds all three
+  configurations on every push and pr and publishes zips from `master`
+  and `v*` tags (`.github/workflows/build.yml`).
+
 - **everything installs disarmed.** enforcement only happens when
   `HKLM\SOFTWARE\WinOomKiller\Armed` is 1 and the service restarted (or
   `install.ps1 -Arm`). even armed, the driver independently rejects

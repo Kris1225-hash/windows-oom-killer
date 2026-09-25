@@ -1,0 +1,80 @@
+windows oom killer: installing and removing
+==========================================
+
+SAFETY NOTICE
+this software terminates processes without the consent of their owners when
+commit memory runs out, and deliberately crashes windows with a bugcheck when
+recovery fails. only install it on a machine you are prepared to lose. never
+deploy it where a crash could cost lives. it installs disarmed. see LICENSE.
+
+keep WinOomKillerSetup.exe next to WinOomKillerDriver.sys and
+WinOomKillerService.exe. it installs whatever sits beside it.
+
+
+before you install: test signing
+--------------------------------
+the driver is test-signed, so windows refuses it unless test signing is on
+(secure boot must be off for that). from an administrator prompt:
+
+    bcdedit /set testsigning on
+    shutdown /r /t 0
+
+
+installing in windows
+---------------------
+from an administrator prompt in this folder:
+
+    WinOomKillerSetup.exe install               installs disarmed and starts it
+    WinOomKillerSetup.exe install --stage-only  registers it, loads it next boot
+    WinOomKillerSetup.exe install --arm         installs with enforcement on
+
+to arm or disarm later, rerun install with or without --arm, or set
+HKLM\SOFTWARE\WinOomKiller\Armed to 1 or 0 and restart the WinOomKiller
+service.
+
+
+installing from WinRE
+---------------------
+boot into the recovery environment (shift + restart, or interrupt boot three
+times), choose troubleshoot -> advanced options -> command prompt, then:
+
+    D:\path\to\WinOomKillerSetup.exe install --target D:\
+
+WinRE gives your C: drive a different letter, often D:. --target must point at
+that drive (D:\) or its windows folder (D:\Windows). if it is wrong, the
+installer lists every windows install it can see. a bitlocker-encrypted drive
+must be unlocked first:
+
+    manage-bde -unlock D: -RecoveryPassword <your 48-digit recovery key>
+
+the install takes effect the next time that windows boots. to turn test
+signing on from WinRE, check which entry is your windows with bcdedit /enum,
+then:
+
+    bcdedit /set {default} testsigning on
+
+
+uninstalling
+------------
+in windows:   WinOomKillerSetup.exe uninstall
+from WinRE:   WinOomKillerSetup.exe uninstall --target D:\
+
+uninstall removes both services, the driver and service binaries, the
+settings under HKLM\SOFTWARE\WinOomKiller, C:\ProgramData\WinOomKiller, and
+the bugcheck test runner's startup task. offline, it cleans every control
+set, so last-known-good cannot bring the driver back. if a machine is stuck
+in a bugcheck loop, this is how you get it out.
+
+
+what gets installed
+-------------------
+  %SystemRoot%\System32\drivers\WinOomKillerDriver.sys   demand-start kernel driver
+  %ProgramFiles%\WinOomKiller\WinOomKillerService.exe    auto-start service, depends
+                                                         on the driver, restarts on
+                                                         failure after 2s/5s/10s
+  HKLM\SOFTWARE\WinOomKiller                             Armed=0, CommitHeadroomMiB=512,
+                                                         ConfirmationSamples=1,
+                                                         KillRetrySamples=2, MaxKills=3
+
+symbols\ holds the .pdb files for reading crash dumps in windbg.
+driver-package\ holds the wdk's signed .inf/.cat package, if you prefer that.

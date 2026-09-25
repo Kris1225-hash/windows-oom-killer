@@ -6,9 +6,9 @@
     <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{7D6B0E74-31BB-4266-9F23-0C5099266231}</ProjectGuid>
+    <ProjectGuid>{841574F5-66E4-4852-B1F1-F196383590D2}</ProjectGuid>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>WinOomKillerService</RootNamespace>
+    <RootNamespace>WinOomKillerSetup</RootNamespace>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='BugcheckTest|x64'" Label="Configuration">
@@ -27,23 +27,21 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_WIN32_WINNT=0x0A00;PSAPI_VERSION=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN32_WINNT=0x0A00;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <WarningLevel>Level4</WarningLevel>
       <TreatWarningAsError>true</TreatWarningAsError>
-      <!-- static crt: released builds must run without a vc++ runtime installed -->
+      <!-- static crt: WinRE has no vc++ runtime to load -->
       <RuntimeLibrary Condition="'$(UseDebugLibraries)'=='true'">MultiThreadedDebug</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(UseDebugLibraries)'!='true'">MultiThreaded</RuntimeLibrary>
     </ClCompile>
-    <Link><SubSystem>Console</SubSystem><AdditionalDependencies>psapi.lib;advapi32.lib;wevtapi.lib;wtsapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
+    <Link><SubSystem>Console</SubSystem><UACExecutionLevel>RequireAdministrator</UACExecutionLevel><AdditionalDependencies>advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='BugcheckTest|x64'">
     <ClCompile><PreprocessorDefinitions>OOM_ENABLE_TEST_IOCTL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="main.c" />
-    <ClCompile Include="..\shared\oom_policy.c" />
+    <ClCompile Include="setup.c" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

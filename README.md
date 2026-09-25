@@ -32,12 +32,27 @@ all codes use the same parameters:
 3. available physical memory, in pages
 4. backing-store reason in the high 32 bits and saturated pagefile-free pages in the low 32 bits
 
+## releases
+
+every push and pull request builds Debug, Release, and BugcheckTest on github actions, packages each with `WinOomKillerSetup.exe`, and smoke-tests the installer online and offline. pushes to `master` publish a prerelease (`build-<n>`); pushing a `v*` tag publishes a release. the BugcheckTest zip is named `…-BugcheckTest-CRASH-TEST-ONLY-…` and is test-only.
+
+each zip installs with one exe, from windows or from WinRE:
+
+```powershell
+WinOomKillerSetup.exe install                  # the running windows, disarmed
+WinOomKillerSetup.exe install --target D:\     # from WinRE: D: is whatever letter your C: got there
+WinOomKillerSetup.exe uninstall [--target D:\]
+```
+
+the offline mode writes the service keys straight into the target's registry hives, so `uninstall --target` from WinRE is also the way out of a bugcheck loop. the ci driver is test-signed, so the target needs test signing on. `INSTALL.txt` in each zip has the details.
+
 ## build
 
 requirements are visual studio 2022 with desktop c++ and the windows 11 sdk/wdk.
 
 ```powershell
 msbuild .\WindowsOomKiller.sln /m /p:Configuration=Debug /p:Platform=x64
+.\scripts\package-release.ps1 -Configuration Debug -Version dev   # optional: the release zip, in .\dist
 ```
 
 the portable policy check also runs on linux:

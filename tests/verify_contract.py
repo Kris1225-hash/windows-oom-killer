@@ -7,6 +7,7 @@ header = (root / "include/oom_protocol.h").read_text()
 driver = (root / "driver/driver.c").read_text()
 service = (root / "service/main.c").read_text()
 bugcheck_runner = (root / "scripts/test-bugchecks.ps1").read_text()
+installer = (root / "installer/setup.c").read_text()
 
 codes = re.findall(r"#define (OOM_FATAL_[A-Z_]+)\s+(0x[0-9A-Fa-f]+)u", header)
 assert len(codes) == 8
@@ -56,4 +57,7 @@ assert "test->confirm != OOM_TEST_CONFIRM" in driver
 assert 'L"--bugcheck-test"' in service
 assert "if (Compare-Object $expected $actual -SyncWindow 0)" in bugcheck_runner
 assert "Remove-TestTask" in bugcheck_runner
+assert 'SetDword(key, L"Armed", arm ? 1 : 0)' in installer
+assert 'options->arm = TRUE' in installer and installer.count("options->arm = TRUE") == 1
+assert "PrintSafetyNotice();" in installer
 print("driver contract verification passed")

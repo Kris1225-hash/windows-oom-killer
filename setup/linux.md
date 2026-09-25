@@ -33,7 +33,9 @@ bytes), checks the eight bugcheck codes are unique, and asserts the
 safety invariants are present in the driver, service, and test-runner
 sources — protected-process rejection, pid create-time verification,
 the maximum-commit watch, the test-ioctl confirmation gate, the
-one-time notification key. it is a literal-string contract, so
+one-time notification key, and that the installer writes `Armed=1`
+only for `--arm` and always prints the safety notice. it is a
+literal-string contract, so
 refactoring any of those sites requires updating the test in the same
 change. this is gate G2.
 

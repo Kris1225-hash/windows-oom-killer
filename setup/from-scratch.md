@@ -72,10 +72,24 @@ configurations:
 | `Release`      | normal build, no test ioctl                                     |
 | `BugcheckTest` | adds the admin-only manual-crash ioctl and the `--bugcheck-test` cli |
 
-outputs land under `driver\x64\<Config>\WinOomKillerDriver.sys` and
-`service\x64\<Config>\WinOomKillerService.exe`. a clean rebuild must
+outputs land under `driver\x64\<Config>\WinOomKillerDriver.sys`,
+`service\x64\<Config>\WinOomKillerService.exe`, and
+`installer\x64\<Config>\WinOomKillerSetup.exe`. a clean rebuild must
 produce zero errors and zero warnings and a signed `.sys` + `.cat`
-(gate G3 evidence describes exactly this).
+(gate G3 evidence describes exactly this). the service and installer
+link the c runtime statically, so they run on machines (and in WinRE)
+with no vc++ runtime installed.
+
+to get the same zip a release ships:
+
+```powershell
+.\scripts\package-release.ps1 -Configuration Debug -Version dev
+.\scripts\test-setup.ps1 -PackageDir .\dist\WinOomKiller-dev-Debug-x64   # disposable machine only
+```
+
+`test-setup.ps1` is what ci runs (gate G10): it installs, upgrades, and
+uninstalls on the machine it runs on, then does the same against a
+fake offline windows built from saved hives.
 
 do not ship or install a `BugcheckTest` build anywhere you are not
 actively crash-testing — the license requires crash-test builds to stay

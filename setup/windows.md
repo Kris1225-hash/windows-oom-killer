@@ -36,6 +36,29 @@ writes the default settings under `HKLM\SOFTWARE\WinOomKiller`
 passed (`-StageOnly` registers everything but loads nothing until the
 next reboot).
 
+`WinOomKillerSetup.exe install` (from a release zip, or
+`installer\x64\<Config>\` next to the built driver and service) does
+the same thing without powershell; `--stage-only` and `--arm` work the
+same way.
+
+### from WinRE, or into any windows that isn't running
+
+`WinOomKillerSetup.exe` also installs into an offline windows: the
+recovery environment, install media's shift+f10 prompt, or a windows
+disk mounted on another machine. the scm isn't available there, so it
+loads the target's `SYSTEM` and `SOFTWARE` hives and writes the same
+service keys, recovery actions, and settings the scm would:
+
+```bat
+D:\WinOomKillerSetup.exe install --target D:\
+```
+
+`--target` is the drive your windows is on *as the recovery
+environment sees it*. it is often not `C:`. without `--target` (or
+pointed at the wrong place) the installer lists every windows install
+it can see. unlock a bitlocker drive with `manage-bde -unlock` first.
+the install takes effect on that windows' next boot.
+
 verify the disarmed baseline before arming anything: event viewer →
 windows logs → application/system, source `WinOomKiller`, should show
 `monitor started disarmed: commit headroom ... pages`.
@@ -123,6 +146,20 @@ session exists; `LastNotifiedBugcheckRecord` guarantees each crash is
 reported exactly once (gate G9).
 
 ## 5. uninstall
+
+```powershell
+WinOomKillerSetup.exe uninstall                 # the running windows
+WinOomKillerSetup.exe uninstall --target D:\    # an offline windows, e.g. from WinRE
+```
+
+both remove the services, binaries, settings, `ProgramData` folder, and
+the bugcheck runner's startup task. offline, every control set is
+cleaned, so last-known-good can't bring the driver back. that makes
+`uninstall --target` from WinRE the way out of a bugcheck loop
+(`0xE0F00008` from a monitor that dies at boot, or an interrupted
+`test-bugchecks.ps1` run).
+
+the same thing by hand:
 
 ```powershell
 Stop-Service WinOomKiller -Force -ErrorAction SilentlyContinue

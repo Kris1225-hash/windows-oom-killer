@@ -6,6 +6,8 @@ Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "WinOomKillerDriver", "drive
 EndProject
 Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "WinOomKillerService", "service\WinOomKillerService.vcxproj", "{7D6B0E74-31BB-4266-9F23-0C5099266231}"
 EndProject
+Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "WinOomKillerSetup", "installer\WinOomKillerSetup.vcxproj", "{841574F5-66E4-4852-B1F1-F196383590D2}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		BugcheckTest|x64 = BugcheckTest|x64
@@ -25,5 +27,11 @@ Global
 		{7D6B0E74-31BB-4266-9F23-0C5099266231}.Release|x64.Build.0 = Release|x64
 		{7D6B0E74-31BB-4266-9F23-0C5099266231}.BugcheckTest|x64.ActiveCfg = BugcheckTest|x64
 		{7D6B0E74-31BB-4266-9F23-0C5099266231}.BugcheckTest|x64.Build.0 = BugcheckTest|x64
+		{841574F5-66E4-4852-B1F1-F196383590D2}.BugcheckTest|x64.ActiveCfg = BugcheckTest|x64
+		{841574F5-66E4-4852-B1F1-F196383590D2}.BugcheckTest|x64.Build.0 = BugcheckTest|x64
+		{841574F5-66E4-4852-B1F1-F196383590D2}.Debug|x64.ActiveCfg = Debug|x64
+		{841574F5-66E4-4852-B1F1-F196383590D2}.Debug|x64.Build.0 = Debug|x64
+		{841574F5-66E4-4852-B1F1-F196383590D2}.Release|x64.ActiveCfg = Release|x64
+		{841574F5-66E4-4852-B1F1-F196383590D2}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 EndGlobal

@@ -4,7 +4,7 @@ Scope: build a kernel-backed Windows OOM monitor that kills a selected memory ho
 
 - [x] G0: this ledger states checks that can fail
   CHECK: inspect this file — every gate after G0 names a fail-able CHECK command or VM EVIDENCE (no claim-only boxes)
-  EXPECT: G1–G9 each document how they can fail; no silent aspirational gates
+  EXPECT: G1–G11 each document how they can fail; no silent aspirational gates
   EVIDENCE: 2026-08-31 — LINT OK (3 expected manual-gate warnings); 2026-09-19 — replaced machine-local `gate-lint.mjs` CHECK path (not shipped in-repo) with this portable ledger inspection
 
 - [x] G1: the portable pressure policy bounds recovery kills and resets when pressure clears
@@ -20,7 +20,7 @@ Scope: build a kernel-backed Windows OOM monitor that kills a selected memory ho
 - [x] G3: the driver and service build with the Windows WDK toolchain
   CHECK: `MSBuild.exe WindowsOomKiller.sln /m /t:Rebuild /p:Configuration=Debug /p:Platform=x64`
   EXPECT: signed driver/catalog and service build with no errors or warnings
-  EVIDENCE: 2026-09-01 — WDK 10.0.26100.0 / MSBuild 17.14.51: signability passed, signed `.sys` and `.cat`, 0 errors, 0 warnings
+  EVIDENCE: 2026-09-01 — WDK 10.0.26100.0 / MSBuild 17.14.51: signability passed, signed `.sys` and `.cat`, 0 errors, 0 warnings; 2026-09-25 — master had stopped compiling since the 09-19 DriverEntry hardening (`goto fail` to an undefined label, C2094); fixed to `goto fail_init`, then Debug, Release, and BugcheckTest (driver, service, installer) rebuilt with 0 errors, 0 warnings on Build Tools 17.14.37614 + WDK 10.0.26100.0
 
 - [x] G4: controlled memory pressure in the VM kills an eligible process before Windows becomes unresponsive
   EVIDENCE: 2026-09-01 — with 32 GiB RAM and a fixed 5 GiB pagefile, pid 3292 consumed 9,128,618 private pages; the driver terminated it and restored commit headroom from 46 MiB to about 35 GiB without a reboot
@@ -39,3 +39,12 @@ Scope: build a kernel-backed Windows OOM monitor that kills a selected memory ho
 
 - [x] G9: after reboot, the service translates a custom bugcheck into a one-time interactive warning
   EVIDENCE: 2026-09-01 — the service translated the latest `0xE0F00008` System event, queued its friendly explanation to session 1, persisted event record `3079`, and did not notify again after a service restart; Debug, Release, and BugcheckTest service builds completed with 0 errors and 0 warnings
+
+- [x] G10: `WinOomKillerSetup.exe` installs and removes the driver and service online and offline, including from a recovery environment
+  CHECK: `scripts\test-setup.ps1 -PackageDir <unzipped release package>` (disposable machine; ci runs it for every configuration)
+  EXPECT: all installer checks passed
+  EVIDENCE: 2026-09-25 — VM (overlay of the kernel-dev VM, Windows 11 26200, test signing on): `test-setup.ps1` passed on the Release package, including an upgrade over the running `install.ps1` install and offline service keys identical to what the SCM wrote online (`FailureActions` byte-for-byte). From Windows 11 install media WinPE (MiniNT, `X:` system drive, no vc++ runtime), `install` without `--target` refused and listed `--target C:\`, `--target X:\` was refused, and `install --target C:\` exited 0; after boot `WinOomKillerDriver` and `WinOomKiller` were RUNNING and the monitor logged `monitor started disarmed: commit headroom 131072 pages`. `uninstall --target C:\` from WinPE exited 0; after boot both services were absent (1060), and the binaries and settings were gone
+
+- [ ] G11: github actions builds all three configurations, smoke-tests each installer, and publishes one release with all three zips
+  CHECK: push to `master` and open the `build` workflow run
+  EXPECT: checks, Debug, Release, and BugcheckTest jobs green; a `build-<n>` prerelease holding three zips and `SHA256SUMS.txt`

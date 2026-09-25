@@ -1,0 +1,146 @@
+name: build
+
+# every push and pull request builds all three configurations and smoke-tests
+# the installer. pushes to the default branch publish a prerelease
+# (build-<run number>); pushing a v* tag publishes a full release.
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  checks:
+    name: portable checks (G1, G2)
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      publish: ${{ steps.version.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: G1 policy tests
+        run: |
+          cmake -S . -B build
+          cmake --build build
+          ./build/oom_policy_test
+
+      - name: G2 driver contract
+        run: python3 tests/verify_contract.py
+
+      - name: version
+        id: version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          sha="${GITHUB_SHA::7}"
+          if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9A-Za-z.-]+$ ]]; then
+              echo "::error::tag $GITHUB_REF_NAME is not a usable version"; exit 1
+            fi
+            version="${GITHUB_REF_NAME#v}" tag="$GITHUB_REF_NAME" prerelease=false publish=true
+          elif [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == "refs/heads/$DEFAULT_BRANCH" ]]; then
+            version="build.$GITHUB_RUN_NUMBER-$sha" tag="build-$GITHUB_RUN_NUMBER" prerelease=true publish=true
+          else
+            version="ci.$GITHUB_RUN_NUMBER-$sha" tag="" prerelease=true publish=false
+          fi
+          {
+            echo "version=$version"
+            echo "tag=$tag"
+            echo "prerelease=$prerelease"
+            echo "publish=$publish"
+          } >> "$GITHUB_OUTPUT"
+          echo "version $version, publish=$publish ${tag:+as $tag}"
+
+  windows:
+    name: ${{ matrix.configuration }}
+    needs: checks
+    # windows-2022 still ships vs 17.14 + the 26100 wdk, the toolchain in G3's evidence.
+    # windows-2025 has no wdk; moving there means the wdk nuget packages.
+    runs-on: windows-2022
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release, BugcheckTest]
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: microsoft/setup-msbuild@v3
+
+      - name: build (G3)
+        run: >
+          msbuild WindowsOomKiller.sln /m /t:Rebuild /nologo /v:minimal
+          /p:Configuration=${{ matrix.configuration }} /p:Platform=x64
+
+      - name: package
+        id: package
+        shell: pwsh
+        run: >
+          ./scripts/package-release.ps1 -Configuration ${{ matrix.configuration }}
+          -Version ${{ needs.checks.outputs.version }} -OutDir dist
+
+      - name: smoke-test the installer (online + offline)
+        shell: pwsh
+        run: ./scripts/test-setup.ps1 -PackageDir '${{ steps.package.outputs.dir }}'
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: WinOomKiller-${{ matrix.configuration }}
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+
+  release:
+    name: publish release
+    needs: [checks, windows]
+    if: needs.checks.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: WinOomKiller-*
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        working-directory: dist
+        run: |
+          sha256sum *.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.checks.outputs.tag }}
+          VERSION: ${{ needs.checks.outputs.version }}
+          PRERELEASE: ${{ needs.checks.outputs.prerelease }}
+        run: |
+          if [[ "$PRERELEASE" == true ]]; then
+            title="build $GITHUB_RUN_NUMBER (${GITHUB_SHA::7})"
+            flags=(--prerelease --latest=false)
+          else
+            title="$TAG"
+            flags=(--latest)
+          fi
+          sed -e "s/{{VERSION}}/$VERSION/g" -e "s/{{SHA}}/$GITHUB_SHA/g" \
+            .github/release-notes.md > notes.md
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --target "$GITHUB_SHA" --title "$title" \
+              --notes-file notes.md "${flags[@]}"
+          fi
