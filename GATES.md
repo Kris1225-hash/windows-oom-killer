@@ -45,6 +45,7 @@ Scope: build a kernel-backed Windows OOM monitor that kills a selected memory ho
   EXPECT: all installer checks passed
   EVIDENCE: 2026-09-25 — VM (overlay of the kernel-dev VM, Windows 11 26200, test signing on): `test-setup.ps1` passed on the Release package, including an upgrade over the running `install.ps1` install and offline service keys identical to what the SCM wrote online (`FailureActions` byte-for-byte). From Windows 11 install media WinPE (MiniNT, `X:` system drive, no vc++ runtime), `install` without `--target` refused and listed `--target C:\`, `--target X:\` was refused, and `install --target C:\` exited 0; after boot `WinOomKillerDriver` and `WinOomKiller` were RUNNING and the monitor logged `monitor started disarmed: commit headroom 131072 pages`. `uninstall --target C:\` from WinPE exited 0; after boot both services were absent (1060), and the binaries and settings were gone
 
-- [ ] G11: github actions builds all three configurations, smoke-tests each installer, and publishes one release with all three zips
+- [x] G11: github actions builds all three configurations, smoke-tests each installer, and publishes one release with all three zips
   CHECK: push to `master` and open the `build` workflow run
   EXPECT: checks, Debug, Release, and BugcheckTest jobs green; a `build-<n>` prerelease holding three zips and `SHA256SUMS.txt`
+  EVIDENCE: 2026-09-25 — run 36189003513 on `6fecadf`: all five jobs green on the first run, `test-setup.ps1` printed `all installer checks passed` for every configuration on windows-2022, and prerelease `build-1` published the Debug, Release, and `BugcheckTest-CRASH-TEST-ONLY` zips with a `SHA256SUMS.txt` that verifies; the shipped `WinOomKillerSetup.exe` imports only `KERNEL32` and `ADVAPI32`
