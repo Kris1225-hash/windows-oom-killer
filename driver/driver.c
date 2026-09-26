@@ -8,12 +8,22 @@
 #define OOM_HEARTBEAT_TIMEOUT_100NS (5ull * 1000 * 1000 * 10)
 #define OOM_KILL_WAIT_100NS          (5ull * 1000 * 1000 * 10)
 #define OOM_KILL_WATCHDOG_100NS      (6ull * 1000 * 1000 * 10)
-#define OOM_MIN_VICTIM_BYTES         (64ull * 1024 * 1024)
-#define OOM_COMMIT_HEADROOM_BYTES    (512ull * 1024 * 1024)
 #define OOM_PROCESS_TERMINATE         0x0001u
+#define OOM_PROCESS_QUERY_INFORMATION 0x0400u
 
 NTKERNELAPI BOOLEAN PsIsProtectedProcess(PEPROCESS process);
 NTKERNELAPI BOOLEAN PsIsProtectedProcessLight(PEPROCESS process);
+NTSYSAPI NTSTATUS NTAPI ZwQueryInformationProcess(HANDLE process_handle,
+                                                  PROCESSINFOCLASS information_class,
+                                                  PVOID information, ULONG information_length,
+                                                  PULONG return_length);
+
+/* Watchdog time excludes sleep and hibernation: the monitor cannot heartbeat
+ * while the machine is suspended, so suspended time must not count against it. */
+static ULONGLONG OomNow(void)
+{
+    return KeQueryUnbiasedInterruptTime();
+}
 
 C_ASSERT(sizeof(OOM_TELEMETRY) == 64);
 C_ASSERT(sizeof(OOM_KILL_REQUEST) == 88);
@@ -102,7 +112,7 @@ static NTSTATUS OomSaveTelemetry(WDFREQUEST request, DEVICE_CONTEXT *ctx,
                                  const OOM_TELEMETRY *telemetry, BOOLEAN allow_equal_sequence)
 {
     ULONG caller = WdfRequestGetRequestorProcessId(request);
-    ULONGLONG now = KeQueryInterruptTime();
+    ULONGLONG now = OomNow();
     BOOLEAN new_owner;
 
     if (!OomTelemetryValid(telemetry) || caller != telemetry->service_pid)
@@ -138,6 +148,7 @@ static NTSTATUS OomTerminateVictim(WDFREQUEST request, DEVICE_CONTEXT *ctx,
     HANDLE process_handle = NULL;
     NTSTATUS status;
     LARGE_INTEGER timeout;
+    ULONG critical = 1;
     BOOLEAN armed;
 
     status = OomSaveTelemetry(request, ctx, &kill->telemetry, TRUE);
@@ -161,15 +172,26 @@ static NTSTATUS OomTerminateVictim(WDFREQUEST request, DEVICE_CONTEXT *ctx,
     }
 
     status = ObOpenObjectByPointer(process, OBJ_KERNEL_HANDLE, NULL,
-                                   OOM_PROCESS_TERMINATE | SYNCHRONIZE, *PsProcessType,
-                                   KernelMode, &process_handle);
+                                   OOM_PROCESS_TERMINATE | OOM_PROCESS_QUERY_INFORMATION |
+                                       SYNCHRONIZE,
+                                   *PsProcessType, KernelMode, &process_handle);
     ObDereferenceObject(process);
     if (!NT_SUCCESS(status))
         return status;
 
+    /* Terminating a critical process bugchecks with CRITICAL_PROCESS_DIED, so
+     * refuse one here as well instead of trusting the monitor's filter. A
+     * failed query refuses too. */
+    status = ZwQueryInformationProcess(process_handle, ProcessBreakOnTermination, &critical,
+                                       (ULONG)sizeof(critical), NULL);
+    if (!NT_SUCCESS(status) || critical) {
+        ZwClose(process_handle);
+        return STATUS_ACCESS_DENIED;
+    }
+
     WdfSpinLockAcquire(ctx->lock);
     ctx->kill_pending = TRUE;
-    ctx->kill_deadline = KeQueryInterruptTime() + OOM_KILL_WATCHDOG_100NS;
+    ctx->kill_deadline = OomNow() + OOM_KILL_WATCHDOG_100NS;
     WdfSpinLockRelease(ctx->lock);
 
     status = ZwTerminateProcess(process_handle, STATUS_NO_MEMORY);
@@ -182,21 +204,33 @@ static NTSTATUS OomTerminateVictim(WDFREQUEST request, DEVICE_CONTEXT *ctx,
     WdfSpinLockAcquire(ctx->lock);
     ctx->last_kill_status = status;
     ctx->kill_pending = FALSE;
+    /* The monitor's only thread was blocked in this ioctl for the whole kill,
+     * so its heartbeat budget restarts now, not when the kill began. */
+    if (status == STATUS_SUCCESS)
+        ctx->last_heartbeat = OomNow();
     armed = ctx->armed;
     WdfSpinLockRelease(ctx->lock);
 
-    if (!NT_SUCCESS(status) && armed)
-        OomBugcheck(status == STATUS_TIMEOUT ? OOM_FATAL_KILL_TIMEOUT
-                                             : OOM_FATAL_KILL_FAILED,
-                    &kill->telemetry);
-    return status;
+    /* STATUS_TIMEOUT is a success code, so NT_SUCCESS cannot tell whether the
+     * victim exited. Only STATUS_SUCCESS (STATUS_WAIT_0) means it did. */
+    if (status == STATUS_TIMEOUT) {
+        if (armed)
+            OomBugcheck(OOM_FATAL_KILL_TIMEOUT, &kill->telemetry);
+        return STATUS_IO_TIMEOUT;
+    }
+    if (status != STATUS_SUCCESS) {
+        if (armed)
+            OomBugcheck(OOM_FATAL_KILL_FAILED, &kill->telemetry);
+        return NT_SUCCESS(status) ? STATUS_UNSUCCESSFUL : status;
+    }
+    return STATUS_SUCCESS;
 }
 
 VOID OomEvtWatchdog(WDFTIMER timer)
 {
     DEVICE_CONTEXT *ctx = DeviceGetContext((WDFDEVICE)WdfTimerGetParentObject(timer));
     OOM_TELEMETRY telemetry;
-    ULONGLONG now = KeQueryInterruptTime();
+    ULONGLONG now = OomNow();
     ULONG bugcheck = 0;
     OOM_WATCHDOG_ACTION action;
     BOOLEAN maximum_commit = OomMaximumCommitReached(ctx);

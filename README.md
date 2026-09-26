@@ -2,7 +2,7 @@
 
 a small windows service and kmdf control driver that recover from commit exhaustion before the machine falls over.
 
-the service uses documented win32 memory counters to detect low commit headroom. it picks the non-critical, non-session-0 process with the largest private commit. the driver validates that request, rejects the system process and protected processes, checks the pid creation time against reuse, and calls `ZwTerminateProcess`.
+the service uses documented win32 memory counters to detect low commit headroom. it picks the non-critical, non-protected, non-session-0 process with the largest private commit. the driver validates that request, rejects the system process, protected processes, and critical processes, checks the pid creation time against reuse, and calls `ZwTerminateProcess`.
 
 if a victim does not exit within five seconds, three recovery kills do not clear pressure, the monitor stops responding during critical pressure, or no safe victim exists, the driver calls `KeBugCheckEx`. the driver also watches windows' `\KernelObjects\MaximumCommitCondition`, so a crashed service cannot silently disable protection before pressure begins.
 
@@ -99,11 +99,11 @@ the driver will need a test signature or windows test-signing mode during develo
   -ServicePath .\service\x64\Debug\WinOomKillerService.exe
 ```
 
-verify the service and event log, then set `HKLM\SOFTWARE\WinOomKiller\Armed` to `1` and restart the service. passing `-Arm` to the installer does both during later test runs.
+verify the service and event log, then set `HKLM\SOFTWARE\WinOomKiller\Armed` to `1` (a `REG_DWORD`) and restart the service. passing `-Arm` to the installer does both during later test runs.
 
 use `-StageOnly` to register a disarmed install without loading it until the next reboot.
 
-defaults are 512 mib commit headroom and one critical sample. if pressure remains critical, it can kill up to three victims two samples apart before the driver watchdog gives up. the driver independently refuses recovery requests outside that hard ceiling. lower registry thresholds are supported; raising them needs a matching driver ceiling.
+defaults are 512 mib commit headroom and one critical sample. if pressure remains critical, it can kill up to three victims two samples apart before the driver watchdog gives up. the driver independently refuses recovery requests outside its hard 512 mib ceiling, so the service clamps `CommitHeadroomMiB` to it, clamps `ConfirmationSamples` and `KillRetrySamples` to 1–10, and logs every value it had to change. settings must be `REG_DWORD`: a value of any other type is ignored in favour of the default, so a mistyped `Armed` leaves the monitor disarmed.
 
 `scripts/memory-hog.ps1 -MemoryMiB 1024` supplies a bounded test victim. do not pressure-test a machine containing anything you care about.
 

@@ -60,4 +60,28 @@ assert "Remove-TestTask" in bugcheck_runner
 assert 'SetDword(key, L"Armed", arm ? 1 : 0)' in installer
 assert 'options->arm = TRUE' in installer and installer.count("options->arm = TRUE") == 1
 assert "PrintSafetyNotice();" in installer
+
+# STATUS_TIMEOUT is a success-class NTSTATUS: a kill wait that timed out must
+# be caught explicitly, bugcheck when armed, and fail the ioctl otherwise.
+assert "if (status == STATUS_TIMEOUT) {" in driver
+assert "OomBugcheck(OOM_FATAL_KILL_TIMEOUT, &kill->telemetry)" in driver
+assert "return STATUS_IO_TIMEOUT;" in driver
+# the driver refuses critical processes itself, failing closed
+assert "ProcessBreakOnTermination, &critical" in driver
+assert "ULONG critical = 1;" in driver
+# watchdog time must not count sleep/hibernate against the monitor
+assert "KeQueryUnbiasedInterruptTime()" in driver and "KeQueryInterruptTime()" not in driver
+# the ceilings live in one place, shared by the driver and the service's clamps
+assert "#define OOM_COMMIT_HEADROOM_BYTES" in header and "#define OOM_MIN_VICTIM_BYTES" in header
+assert "#define OOM_COMMIT_HEADROOM_BYTES" not in driver
+assert "#define OOM_MIN_VICTIM_BYTES" not in driver
+assert "(DWORD)(OOM_COMMIT_HEADROOM_BYTES / MIB)" in service
+assert "OOM_MIN_VICTIM_BYTES / page_size" in service
+# only an explicit REG_DWORD 1 arms the monitor
+assert 'armed_setting = ReadSetting(L"Armed", 0);' in service and "armed = armed_setting == 1;" in service
+assert "if (status == ERROR_SUCCESS)\n        return TRUE;" in service
+# never offer the driver a victim it will refuse
+assert "ProcessProtectionLevelInfo" in service and "IsProcessCritical(process, &critical)" in service
+# offline uninstall must not stop early on a long SYSTEM-hive key name
+assert "wchar_t name[256]" in installer and "status == ERROR_MORE_DATA" in installer
 print("driver contract verification passed")

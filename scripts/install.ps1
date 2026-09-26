@@ -12,6 +12,11 @@ $serviceTarget = Join-Path $installDir 'WinOomKillerService.exe'
 $serviceExists = Get-Service WinOomKiller -ErrorAction SilentlyContinue
 $driverExists = Get-Service WinOomKillerDriver -ErrorAction SilentlyContinue
 
+# $ErrorActionPreference does not cover native commands, so check sc.exe by hand
+function Assert-Sc([string] $What) {
+    if ($LASTEXITCODE -ne 0) { throw "sc.exe $What failed with exit code $LASTEXITCODE" }
+}
+
 if ($serviceExists) { Stop-Service WinOomKiller -Force }
 if ($driverExists) { Stop-Service WinOomKillerDriver -Force }
 
@@ -21,14 +26,18 @@ Copy-Item $ServicePath $serviceTarget -Force
 
 if ($driverExists) {
     & sc.exe config WinOomKillerDriver type= kernel start= demand binPath= $driverTarget | Out-Null
+    Assert-Sc 'config WinOomKillerDriver'
 } else {
     & sc.exe create WinOomKillerDriver type= kernel start= demand binPath= $driverTarget | Out-Null
+    Assert-Sc 'create WinOomKillerDriver'
 }
 
 if ($serviceExists) {
     & sc.exe config WinOomKiller binPath= "`"$serviceTarget`"" start= auto depend= WinOomKillerDriver | Out-Null
+    Assert-Sc 'config WinOomKiller'
 } else {
     & sc.exe create WinOomKiller binPath= "`"$serviceTarget`"" start= auto depend= WinOomKillerDriver | Out-Null
+    Assert-Sc 'create WinOomKiller'
 }
 
 $settings = 'HKLM:\SOFTWARE\WinOomKiller'
@@ -39,7 +48,9 @@ New-ItemProperty $settings ConfirmationSamples -PropertyType DWord -Value 1 -For
 New-ItemProperty $settings KillRetrySamples -PropertyType DWord -Value 2 -Force | Out-Null
 New-ItemProperty $settings MaxKills -PropertyType DWord -Value 3 -Force | Out-Null
 & sc.exe failure WinOomKiller reset= 60 actions= restart/2000/restart/5000/restart/10000 | Out-Null
+Assert-Sc 'failure WinOomKiller'
 & sc.exe failureflag WinOomKiller 1 | Out-Null
+Assert-Sc 'failureflag WinOomKiller'
 
 if (-not $StageOnly) {
     Start-Service WinOomKillerDriver

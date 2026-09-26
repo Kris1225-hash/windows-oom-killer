@@ -30,6 +30,10 @@ OOM_ACTION OomPolicyObserve(OOM_POLICY_STATE *state, const OOM_THRESHOLDS *thres
         return OOM_ACTION_NONE;
     }
 
+    /* The kill budget is spent: only escalation remains until pressure clears. */
+    if (state->kills_issued >= thresholds->max_kills)
+        return OOM_ACTION_ESCALATE;
+
     if (++state->critical_samples >= thresholds->confirmation_samples) {
         state->critical_samples = 0;
         return OOM_ACTION_KILL;

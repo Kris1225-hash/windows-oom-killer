@@ -30,7 +30,10 @@ from an administrator prompt in this folder:
 
 to arm or disarm later, rerun install with or without --arm, or set
 HKLM\SOFTWARE\WinOomKiller\Armed to 1 or 0 and restart the WinOomKiller
-service.
+service. it must be a REG_DWORD; any other type is ignored and the service
+stays disarmed:
+
+    reg add HKLM\SOFTWARE\WinOomKiller /v Armed /t REG_DWORD /d 1 /f
 
 
 installing from WinRE

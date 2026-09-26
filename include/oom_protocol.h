@@ -9,6 +9,11 @@
 #define OOM_FLAG_ARMED    0x00000001u
 #define OOM_FLAG_CRITICAL 0x00000002u
 
+/* Hard ceilings shared by both sides. The driver refuses any kill these do
+ * not justify, and the service clamps its registry settings to them. */
+#define OOM_COMMIT_HEADROOM_BYTES (512ull * 1024 * 1024)
+#define OOM_MIN_VICTIM_BYTES      (64ull * 1024 * 1024)
+
 typedef enum OOM_BACKING_REASON {
     OOM_BACKING_UNKNOWN = 0,
     OOM_BACKING_PAGEFILE_DISABLED = 1,

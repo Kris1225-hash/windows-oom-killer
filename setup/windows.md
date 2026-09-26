@@ -66,12 +66,14 @@ windows logs → application/system, source `WinOomKiller`, should show
 ## 2. arm
 
 ```powershell
-Set-ItemProperty HKLM:\SOFTWARE\WinOomKiller Armed -Value 1
+Set-ItemProperty HKLM:\SOFTWARE\WinOomKiller Armed -Value 1 -Type DWord
 Restart-Service WinOomKiller
 ```
 
 or re-run the installer with `-Arm`. the service logs
-`monitor started armed`. the driver still independently refuses kill
+`monitor started armed`. `Armed` must be a `REG_DWORD`: `reg add` without
+`/t REG_DWORD` writes a string, which the service ignores (it logs
+`ignoring setting Armed` and stays disarmed). the driver still independently refuses kill
 requests unless the telemetry says pressure is genuinely critical —
 arming is necessary, not sufficient.
 
@@ -97,10 +99,12 @@ without a reboot. if nothing dies: check `Armed`, pagefile size vs.
 `CommitHeadroomMiB`, and that the hog is neither session 0, a
 protected/critical process, nor under the driver's 64 MiB victim floor.
 
-tuning: registry thresholds may be lowered freely; raising them above
-the driver's compiled ceilings (`OOM_COMMIT_HEADROOM_BYTES`,
-`OOM_MIN_VICTIM_BYTES` in driver.c) does nothing — the driver rejects
-what its own ceiling does not justify.
+tuning: registry thresholds may be lowered freely. the driver's
+compiled ceilings (`OOM_COMMIT_HEADROOM_BYTES`, `OOM_MIN_VICTIM_BYTES`
+in `include/oom_protocol.h`) cap what it will accept, so the service
+clamps `CommitHeadroomMiB` to 512 and `ConfirmationSamples` /
+`KillRetrySamples` to 1–10, logs every clamp, and lists the effective
+values in its `monitor started` line.
 
 ## 4. bugcheck testing (the part that destroys the vm's uptime)
 
@@ -142,8 +146,10 @@ they survive the crashes they are recording.
 
 after any custom bugcheck and reboot, the normal service translates the
 latest WER event into a one-time friendly popup once an interactive
-session exists; `LastNotifiedBugcheckRecord` guarantees each crash is
-reported exactly once (gate G9).
+session exists. WER writes that event some time after boot, so the
+service keeps checking every 10 seconds for the first ten minutes of
+uptime; `LastNotifiedBugcheckRecord` guarantees each crash is reported
+exactly once (gate G9).
 
 ## 5. uninstall
 
@@ -179,6 +185,8 @@ Unregister-ScheduledTask WinOomKillerBugcheckTests -Confirm:$false -ErrorAction 
 |---|---|
 | `STATUS_ACCESS_DENIED` from kill ioctl | driver rejected the victim: protected/critical, system process, pid ≤ 4, the service itself, under 64 MiB private, pid create-time mismatch (reuse), or telemetry not critical/armed |
 | `STATUS_RETRY` from heartbeat | stale or duplicate telemetry sequence number; the service increments per sample |
+| `ignoring setting ...` in the event log | that value is not a `REG_DWORD`; the service used the default (for `Armed`, disarmed) |
+| `the driver declined to escalate` | pressure was below the driver's ceiling when the service asked for a bugcheck |
 | `STATUS_ACCESS_DENIED` from any ioctl with the monitor running | device single-owner: another instance already holds `\\.\WinOomKiller` |
 | driver won't start | not test-signed / test-signing mode off; check `sc.exe qc WinOomKillerDriver` binPath and the system event log |
 | no popup after kill | victim ran in a session with no interactive user, or `WTSSendMessageW` failed — the service logs the win32 error |

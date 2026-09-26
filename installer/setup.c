@@ -317,7 +317,8 @@ static BOOL ResolvePayload(const SETUP_OPTIONS *options, wchar_t *driver, wchar_
     wchar_t dir[MAX_PATH];
 
     if (options->payload) {
-        if (!GetFullPathNameW(options->payload, ARRAYSIZE(dir), dir, NULL)) {
+        DWORD length = GetFullPathNameW(options->payload, ARRAYSIZE(dir), dir, NULL);
+        if (!length || length >= ARRAYSIZE(dir)) {
             Fail(L"bad --payload path %ls", options->payload);
             return FALSE;
         }
@@ -423,6 +424,12 @@ static BOOL StartServiceChecked(SC_HANDLE service, const wchar_t *name)
     return FALSE;
 }
 
+static BOOL SystemDir(wchar_t *out, UINT out_count)
+{
+    UINT length = GetSystemDirectoryW(out, out_count);
+    return length && length < out_count;
+}
+
 static BOOL ProgramFilesDir(wchar_t *out, DWORD out_count)
 {
     DWORD length = GetEnvironmentVariableW(L"ProgramW6432", out, out_count);
@@ -462,8 +469,8 @@ static int InstallOnline(const SETUP_OPTIONS *options)
         return 1;
     }
 
-    GetSystemDirectoryW(system_dir, ARRAYSIZE(system_dir));
-    if (!JoinPath(drivers_dir, ARRAYSIZE(drivers_dir), system_dir, L"drivers") ||
+    if (!SystemDir(system_dir, ARRAYSIZE(system_dir)) ||
+        !JoinPath(drivers_dir, ARRAYSIZE(drivers_dir), system_dir, L"drivers") ||
         !JoinPath(driver_target, ARRAYSIZE(driver_target), drivers_dir, DRIVER_FILE) ||
         !ProgramFilesDir(pf, ARRAYSIZE(pf)) ||
         !JoinPath(install_dir, ARRAYSIZE(install_dir), pf, PRODUCT_DIR) ||
@@ -538,7 +545,8 @@ static void DeleteTestTaskOnline(void)
     PROCESS_INFORMATION process;
     DWORD exit_code = 1;
 
-    GetSystemDirectoryW(system_dir, ARRAYSIZE(system_dir));
+    if (!SystemDir(system_dir, ARRAYSIZE(system_dir)))
+        return;
     _snwprintf_s(command, ARRAYSIZE(command), _TRUNCATE,
                  L"\"%ls\\schtasks.exe\" /Delete /TN " TEST_TASK_NAME L" /F", system_dir);
     startup.cb = (DWORD)sizeof(startup);
@@ -572,8 +580,8 @@ static int UninstallOnline(void)
     CloseServiceHandle(scm);
 
     DeleteTestTaskOnline();
-    GetSystemDirectoryW(system_dir, ARRAYSIZE(system_dir));
-    if (JoinPath(path, ARRAYSIZE(path), system_dir, L"drivers\\" DRIVER_FILE))
+    if (SystemDir(system_dir, ARRAYSIZE(system_dir)) &&
+        JoinPath(path, ARRAYSIZE(path), system_dir, L"drivers\\" DRIVER_FILE))
         RemoveFileOrDefer(path, TRUE);
     if (ProgramFilesDir(pf, ARRAYSIZE(pf)) && JoinPath(path, ARRAYSIZE(path), pf, PRODUCT_DIR))
         RemoveDirectoryTree(path, TRUE);
@@ -891,8 +899,9 @@ static void DeleteTestTaskOffline(OFFLINE_TARGET *target)
 
 static int UninstallOffline(const wchar_t *windir)
 {
-    wchar_t name[32], path[MAX_PATH];
-    DWORD index, name_count;
+    wchar_t name[256], path[MAX_PATH]; /* registry key names are at most 255 chars */
+    DWORD index, name_count, control_sets = 0;
+    LSTATUS status;
     OFFLINE_TARGET target;
 
     wprintf(L"uninstalling from the offline windows at %ls\n", windir);
@@ -901,17 +910,27 @@ static int UninstallOffline(const wchar_t *windir)
         /* every control set, so last-known-good cannot bring the driver back either */
         for (index = 0;; ++index) {
             name_count = ARRAYSIZE(name);
-            if (RegEnumKeyExW(target.system, index, name, &name_count, NULL, NULL, NULL,
-                              NULL) != ERROR_SUCCESS)
+            status = RegEnumKeyExW(target.system, index, name, &name_count, NULL, NULL, NULL,
+                                   NULL);
+            if (status == ERROR_NO_MORE_ITEMS)
                 break;
+            if (status == ERROR_MORE_DATA)
+                continue; /* too long to be a ControlSetNNN key */
+            if (status != ERROR_SUCCESS) {
+                Fail(L"cannot enumerate the offline SYSTEM hive: win32 error %ld", status);
+                break;
+            }
             if (_wcsnicmp(name, L"ControlSet", 10))
                 continue;
+            ++control_sets;
             _snwprintf_s(path, ARRAYSIZE(path), _TRUNCATE, L"%ls\\Services\\" SERVICE_NAME,
                          name);
             DeleteKeyTree(target.system, path, path);
             _snwprintf_s(path, ARRAYSIZE(path), _TRUNCATE, L"%ls\\Services\\" DRIVER_NAME, name);
             DeleteKeyTree(target.system, path, path);
         }
+        if (!control_sets)
+            Fail(L"the offline SYSTEM hive has no ControlSet keys");
         DeleteKeyTree(target.software, L"WinOomKiller", L"HKLM\\" SETTINGS_KEY);
         DeleteTestTaskOffline(&target);
 

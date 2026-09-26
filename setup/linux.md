@@ -17,8 +17,11 @@ cmake --build build
 ```
 
 covers critical-pressure detection, confirmation sampling, kill retry
-pacing, the `max_kills` bound with escalation, state reset when
-pressure clears, and both watchdog timeouts. this is gate G1.
+pacing, the `max_kills` bound with escalation (which stays escalation,
+never another kill, until pressure clears), state reset when pressure
+clears, and both watchdog timeouts. the checks are not `assert()`, so a
+Release (`NDEBUG`) build still runs them, and `ctest` in the build dir
+runs the same binary. this is gate G1.
 
 ## protocol contract check
 

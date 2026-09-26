@@ -10,12 +10,12 @@ Scope: build a kernel-backed Windows OOM monitor that kills a selected memory ho
 - [x] G1: the portable pressure policy bounds recovery kills and resets when pressure clears
   CHECK: cmake -S . -B build && cmake --build build && ./build/oom_policy_test
   EXPECT: oom policy tests passed
-  EVIDENCE: 2026-08-31 — oom policy tests passed
+  EVIDENCE: 2026-08-31 — oom policy tests passed; 2026-09-26 — oom policy tests passed after making `max_kills` sticky past ESCALATE (the old policy fails the four new post-escalation checks), in both a default and a Release (`NDEBUG`) build
 
 - [x] G2: the driver protocol keeps telemetry and bugcheck parameters stable
   CHECK: python3 tests/verify_contract.py
   EXPECT: driver contract verification passed
-  EVIDENCE: 2026-08-31 — driver contract verification passed
+  EVIDENCE: 2026-08-31 — driver contract verification passed; 2026-09-26 — driver contract verification passed with the added kill-timeout, critical-process, unbiased-clock, shared-ceiling, registry-type, and offline-enumeration checks
 
 - [x] G3: the driver and service build with the Windows WDK toolchain
   CHECK: `MSBuild.exe WindowsOomKiller.sln /m /t:Rebuild /p:Configuration=Debug /p:Platform=x64`

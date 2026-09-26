@@ -49,14 +49,19 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 - **settings** (`HKLM\SOFTWARE\WinOomKiller`, all DWORD unless noted):
   `Armed` (0), `CommitHeadroomMiB` (512), `ConfirmationSamples` (1),
   `KillRetrySamples` (2), `MaxKills` (3). lowering thresholds is
-  supported; raising them needs a matching driver ceiling
-  (`OOM_COMMIT_HEADROOM_BYTES` in driver.c).
+  supported. the service clamps `CommitHeadroomMiB` to the driver's
+  ceiling (`OOM_COMMIT_HEADROOM_BYTES` in `include/oom_protocol.h`) and
+  the two sample counts to 1–10, and logs what it changed. a value of
+  the wrong registry type is ignored in favour of the default, so only
+  a `REG_DWORD` 1 arms the monitor.
 
 - **driver hard floors:** victims below 64 MiB private are rejected,
   system process (pid ≤ 4), protected and protected-light processes,
-  the service itself, and pid-reuse (create-time mismatch) are all
-  rejected. the kill cap is enforced in the kernel, not just the
-  service.
+  critical processes, the service itself, and pid-reuse (create-time
+  mismatch) are all rejected. the service skips session-0 processes
+  and never offers the driver one it would refuse. the kill cap
+  (`MaxKills`) belongs to the service's policy: once it is spent, only
+  escalation remains until pressure clears.
 
 - **the device has one owner.** one service instance holds
   `\\.\WinOomKiller` at a time. during manual bugcheck testing, keep
@@ -80,8 +85,9 @@ facts below are drawn from the README, GATES.md evidence, and the source.
   victim's session (`WTSSendMessageW`) naming process, pid, reason, and
   private usage. after a reboot following a custom bugcheck, the
   service translates the latest WER event into a friendly one-time
-  popup; `LastNotifiedBugcheckRecord` (QWORD) makes each crash report
-  exactly once.
+  popup. WER logs that event some time after boot, so the service keeps
+  looking for the first ten minutes of uptime; `LastNotifiedBugcheckRecord`
+  (QWORD) makes each crash report exactly once.
 
 - **gates:** every stage of this project was verified against the
   checks in `GATES.md`, including a real kill under 32 GiB pressure
