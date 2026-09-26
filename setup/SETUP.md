@@ -43,30 +43,33 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 
 - **everything installs disarmed.** enforcement only happens when
   `HKLM\SOFTWARE\WinOomKiller\Armed` is 1 and the service restarted (or
-  `install.ps1 -Arm`). even armed, the driver independently rejects
-  kills unless telemetry says pressure is critical.
+  `install.ps1 -Arm`). even armed, the driver rejects kills unless the
+  telemetry the service sends is critical by the driver's own ceiling.
 
 - **settings** (`HKLM\SOFTWARE\WinOomKiller`, all DWORD unless noted):
   `Armed` (0), `CommitHeadroomMiB` (512), `ConfirmationSamples` (1),
-  `KillRetrySamples` (2), `MaxKills` (3). lowering thresholds is
-  supported. the service clamps `CommitHeadroomMiB` to the driver's
-  ceiling (`OOM_COMMIT_HEADROOM_BYTES` in `include/oom_protocol.h`) and
-  the two sample counts to 1–10, and logs what it changed. a value of
-  the wrong registry type is ignored in favour of the default, so only
-  a `REG_DWORD` 1 arms the monitor.
+  `KillRetrySamples` (2), `MaxKills` (3). the service clamps
+  `CommitHeadroomMiB` to 0–512, the driver's ceiling
+  (`OOM_COMMIT_HEADROOM_BYTES` in `include/oom_protocol.h`), and the two
+  sample counts and `MaxKills` to 1–10, and logs what it changed. a
+  value of the wrong registry type is ignored in favour of the default,
+  so only a `REG_DWORD` 1 arms the monitor. reinstalling keeps tuned
+  thresholds and only sets `Armed`.
 
-- **driver hard floors:** victims below 64 MiB private are rejected,
-  system process (pid ≤ 4), protected and protected-light processes,
-  critical processes, the service itself, and pid-reuse (create-time
-  mismatch) are all rejected. the service skips session-0 processes
-  and never offers the driver one it would refuse. the kill cap
+- **driver hard floors:** victims the service reports below 64 MiB
+  private are rejected, as are the system process (pid ≤ 4), protected
+  and protected-light processes, critical processes, the service
+  itself, and pid reuse (create-time mismatch). the service skips
+  session-0, critical and protected processes itself, and does not
+  offer a victim the driver already refused in the same pressure
+  episode. the kill cap
   (`MaxKills`) belongs to the service's policy: once it is spent, only
   escalation remains until pressure clears.
 
 - **the device has one owner.** one service instance holds
   `\\.\WinOomKiller` at a time. during manual bugcheck testing, keep
-  the normal monitor stopped and start only the driver service, or
-  ioctls answer `STATUS_ACCESS_DENIED`.
+  the normal monitor stopped and start only the driver service; a
+  second opener cannot open the device (win32 error 5).
 
 - **bugchecks:** `0xE0F00001`–`0xE0F00008` (see README table). all four
   parameters: commit charge (pages), commit limit (pages), available
@@ -86,10 +89,11 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 - **notifications:** after a recovery kill, a popup appears in the
   victim's session (`WTSSendMessageW`) naming process, pid, reason, and
   private usage. after a reboot following a custom bugcheck, the
-  service translates the latest WER event into a friendly one-time
-  popup. WER logs that event some time after boot, so the service keeps
-  looking for the first ten minutes of uptime; `LastNotifiedBugcheckRecord`
-  (QWORD) makes each crash report exactly once.
+  service translates the latest WER event into a friendly popup in the
+  console session. WER logs that event some time after boot, so the
+  service keeps looking for the first ten minutes of uptime;
+  `LastNotifiedBugcheckRecord` (QWORD) stops a crash from being
+  reported twice.
 
 - **gates:** every stage of this project was verified against the
   checks in `GATES.md`, including a real kill under 32 GiB pressure

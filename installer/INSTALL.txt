@@ -27,8 +27,14 @@ from an administrator prompt in this folder:
     WinOomKillerSetup.exe install               installs disarmed and starts it
     WinOomKillerSetup.exe install --stage-only  registers it, loads it next boot
     WinOomKillerSetup.exe install --arm         installs with enforcement on
+    WinOomKillerSetup.exe install --payload DIR installs the driver and service
+                                                found in DIR instead
 
-to arm or disarm later, rerun install with or without --arm, or set
+--stage-only on a machine that already has it installed stops the running
+monitor and driver first, so the machine is unmonitored until the next boot.
+
+to arm or disarm later, rerun install with or without --arm (it keeps any
+tuned thresholds and only sets Armed), or set
 HKLM\SOFTWARE\WinOomKiller\Armed to 1 or 0 and restart the WinOomKiller
 service. it must be a REG_DWORD; any other type is ignored and the service
 stays disarmed:
@@ -51,8 +57,8 @@ must be unlocked first:
     manage-bde -unlock D: -RecoveryPassword <your 48-digit recovery key>
 
 the install takes effect the next time that windows boots. to turn test
-signing on from WinRE, check which entry is your windows with bcdedit /enum,
-then:
+signing on from WinRE, find your windows' entry with bcdedit /enum and use
+its identifier (usually {default}):
 
     bcdedit /set {default} testsigning on
 
@@ -83,4 +89,7 @@ what gets installed
                                                          3 error
 
 symbols\ holds the .pdb files for reading crash dumps in windbg.
-driver-package\ holds the wdk's signed .inf/.cat package, if you prefer that.
+driver-package\ holds the wdk's signed .inf/.cat package. it installs only the
+kernel driver (no monitor service, settings or event source), so use
+WinOomKillerSetup.exe to install. WinOomKillerDriver.cer is the throwaway ci
+certificate the driver is test-signed with.

@@ -278,23 +278,36 @@ static BOOL SetSz(HKEY key, const wchar_t *name, DWORD type, const wchar_t *valu
     return SetString(key, name, type, value, wcslen(value) + 1);
 }
 
+/* Writes the default only where the value is missing or not a REG_DWORD (which
+ * the service would ignore anyway), so reinstalling keeps tuned thresholds. */
+static BOOL SetDwordDefault(HKEY key, const wchar_t *name, DWORD value)
+{
+    DWORD type = REG_NONE, size = 0;
+
+    if (RegQueryValueExW(key, name, NULL, &type, NULL, &size) == ERROR_SUCCESS &&
+        type == REG_DWORD && size == sizeof(DWORD))
+        return TRUE;
+    return SetDword(key, name, value);
+}
+
 static BOOL WriteSettings(HKEY hklm_software, BOOL arm)
 {
     HKEY key;
     LSTATUS status;
     BOOL ok;
 
-    status = RegCreateKeyExW(hklm_software, L"WinOomKiller", 0, NULL, 0, KEY_WRITE, NULL, &key,
-                             NULL);
+    status = RegCreateKeyExW(hklm_software, L"WinOomKiller", 0, NULL, 0,
+                             KEY_QUERY_VALUE | KEY_SET_VALUE, NULL, &key, NULL);
     if (status != ERROR_SUCCESS) {
         Fail(L"cannot create the settings key: win32 error %ld", status);
         return FALSE;
     }
+    /* Armed always follows --arm; the thresholds keep whatever was tuned */
     ok = SetDword(key, L"Armed", arm ? 1 : 0) &&
-         SetDword(key, L"CommitHeadroomMiB", 512) &&
-         SetDword(key, L"ConfirmationSamples", 1) &&
-         SetDword(key, L"KillRetrySamples", 2) &&
-         SetDword(key, L"MaxKills", 3);
+         SetDwordDefault(key, L"CommitHeadroomMiB", 512) &&
+         SetDwordDefault(key, L"ConfirmationSamples", 1) &&
+         SetDwordDefault(key, L"KillRetrySamples", 2) &&
+         SetDwordDefault(key, L"MaxKills", 3);
     RegCloseKey(key);
     return ok;
 }
@@ -905,7 +918,8 @@ static int InstallOffline(const SETUP_OPTIONS *options, const wchar_t *windir)
         return 1;
     wprintf(L"staged into %ls; it loads on that windows' next boot. enforcement is %ls\n"
             L"the driver is test-signed: that windows needs test signing on (secure boot off)\n"
-            L"or it will refuse the driver. from WinRE: bcdedit /set {default} testsigning on\n",
+            L"or it will refuse the driver. from WinRE: bcdedit /set {default} testsigning on\n"
+            L"(use your windows' identifier from bcdedit /enum if it is not {default})\n",
             windir, options->arm ? L"ARMED" : L"disarmed");
     return 0;
 }
@@ -998,9 +1012,20 @@ static BOOL ParseOptions(int argc, wchar_t **argv, SETUP_OPTIONS *options)
     else if (_wcsicmp(argv[1], L"uninstall"))
         return FALSE;
     for (i = 2; i < argc; ++i) {
-        if (!_wcsicmp(argv[i], L"--target") && i + 1 < argc)
+        BOOL is_target = !_wcsicmp(argv[i], L"--target");
+        BOOL is_payload = !_wcsicmp(argv[i], L"--payload") && options->install;
+
+        if ((is_target || is_payload) && i + 1 >= argc) {
+            fwprintf(stderr, L"%ls needs a path\n\n", argv[i]);
+            return FALSE;
+        }
+        if ((is_target && options->target) || (is_payload && options->payload)) {
+            fwprintf(stderr, L"%ls given twice\n\n", argv[i]);
+            return FALSE;
+        }
+        if (is_target)
             options->target = argv[++i];
-        else if (!_wcsicmp(argv[i], L"--payload") && i + 1 < argc && options->install)
+        else if (is_payload)
             options->payload = argv[++i];
         else if (!_wcsicmp(argv[i], L"--arm") && options->install)
             options->arm = TRUE;

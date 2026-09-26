@@ -41,7 +41,16 @@ assert "OomBackingParameter(t)" in driver
 assert "PsIsProtectedProcess(process)" in driver
 assert "PsIsProtectedProcessLight(process)" in driver
 assert "PsGetProcessCreateTimeQuadPart(process) != kill->victim_create_time" in driver
-assert "ZwWaitForSingleObject(process_handle" in driver
+assert "ZwTerminateProcess(process_handle, STATUS_NO_MEMORY)" in driver
+assert "timeout.QuadPart = -(LONGLONG)OOM_KILL_WAIT_100NS;" in driver
+assert "ZwWaitForSingleObject(process_handle, FALSE, &timeout)" in driver
+# the ctypes structs above are a copy; the driver's own C_ASSERTs and the
+# _Static_asserts in tests/test_policy.c pin the real header layout
+assert "C_ASSERT(sizeof(OOM_TELEMETRY) == 64);" in driver
+assert "C_ASSERT(sizeof(OOM_KILL_REQUEST) == 88);" in driver
+policy_test = (root / "tests/test_policy.c").read_text()
+assert "_Static_assert(sizeof(OOM_TELEMETRY) == 64" in policy_test
+assert "_Static_assert(sizeof(OOM_KILL_REQUEST) == 88" in policy_test
 assert "ctx->kill_pending = FALSE" in driver
 assert "driver_config.EvtDriverUnload = OomEvtDriverUnload" in driver
 assert 'L"\\\\KernelObjects\\\\MaximumCommitCondition"' in driver

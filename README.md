@@ -8,7 +8,7 @@ if a victim does not exit within five seconds, three recovery kills do not clear
 
 after a successful recovery kill, the service displays a popup in the affected user's session with the process name, pid, reason, and private memory usage.
 
-after a custom OOM bugcheck and reboot, the service translates the latest Windows bugcheck event and displays the friendly reason and all four parameters once an interactive session is available. each crash is reported only once.
+after a custom OOM bugcheck and reboot, the service translates the latest Windows bugcheck event and shows the friendly reason and all four parameters in the console session (not an rdp session). WER logs that event some time after boot, so the service keeps looking for ten minutes; a marker stops a crash from being reported twice.
 
 the split is deliberate. windows exposes good supported memory and per-process commit APIs to user mode. putting undocumented memory-manager structures in the driver would make it version-fragile for no gain. the watchdog and final recovery path remain in the kernel.
 
@@ -63,6 +63,10 @@ cmake --build build
 ./build/oom_policy_test
 ```
 
+on windows, cmake's default visual studio generator is multi-config:
+`cmake --build build --config Debug`, then `.\build\Debug\oom_policy_test.exe`
+(or `ctest --test-dir build -C Debug`).
+
 ### manual bugcheck build
 
 the `BugcheckTest` configuration adds an admin-only manual crash ioctl and cli. debug and release builds do not contain it.
@@ -87,11 +91,11 @@ to verify all eight codes across automatic reboots:
 .\scripts\test-bugchecks.ps1 -Start
 ```
 
-the runner verifies each preceding System event before triggering the next code. it stops after eight successful crashes or immediately on a mismatch. results and logs are written under `C:\ProgramData\WinOomKiller`. cancel an active run with `test-bugchecks.ps1 -Cancel`.
+`-Start` first installs the BugcheckTest binaries from this checkout (build them first), sets the monitor to Manual, and reboots. the runner verifies each preceding System event before triggering the next code. it stops after eight successful crashes or immediately on a mismatch. results and logs are written under `C:\ProgramData\WinOomKiller`. cancel an active run with `test-bugchecks.ps1 -Cancel`. the crash-test build stays installed afterwards, so reinstall a Debug or Release build when you are done.
 
 ## install in a disposable vm
 
-the driver will need a test signature or windows test-signing mode during development. install disarmed first:
+the build test-signs the driver, so the target needs test-signing mode on (`bcdedit /set testsigning on`, secure boot off) or windows refuses to load it. install disarmed first:
 
 ```powershell
 .\scripts\install.ps1 `
@@ -101,9 +105,9 @@ the driver will need a test signature or windows test-signing mode during develo
 
 verify the service and event log, then set `HKLM\SOFTWARE\WinOomKiller\Armed` to `1` (a `REG_DWORD`) and restart the service. passing `-Arm` to the installer does both during later test runs.
 
-use `-StageOnly` to register a disarmed install without loading it until the next reboot.
+use `-StageOnly` to register a disarmed install without loading it until the next reboot. an existing install is stopped first, so the machine is unmonitored until then.
 
-defaults are 512 mib commit headroom and one critical sample. if pressure remains critical, it can kill up to three victims two samples apart before the driver watchdog gives up. the driver independently refuses recovery requests outside its hard 512 mib ceiling, so the service clamps `CommitHeadroomMiB` to it, clamps `ConfirmationSamples` and `KillRetrySamples` to 1–10, and logs every value it had to change. settings must be `REG_DWORD`: a value of any other type is ignored in favour of the default, so a mistyped `Armed` leaves the monitor disarmed.
+defaults are 512 mib commit headroom and one critical sample. if pressure remains critical, it can kill up to three victims two samples apart; after that the service asks the driver to bugcheck, which it does if its own ceiling agrees. the driver refuses any kill the telemetry does not justify against its hard 512 mib ceiling, so the service clamps `CommitHeadroomMiB` to 0–512, and clamps `ConfirmationSamples`, `KillRetrySamples` and `MaxKills` to 1–10 (service limits, not driver ones). it logs every value it had to change. settings must be `REG_DWORD`: a value of any other type is ignored in favour of the default, so a mistyped `Armed` leaves the monitor disarmed. reinstalling keeps tuned thresholds and only sets `Armed`.
 
 `scripts/memory-hog.ps1 -MemoryMiB 1024` supplies a bounded test victim. do not pressure-test a machine containing anything you care about.
 

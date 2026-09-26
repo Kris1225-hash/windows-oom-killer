@@ -1,6 +1,19 @@
 #include "oom_policy.h"
+#include "oom_protocol.h"
 
+#include <stddef.h>
 #include <stdio.h>
+
+/* The wire structs are the driver protocol: pin their real layout here, not a
+ * hand-written copy of it. */
+_Static_assert(sizeof(OOM_TELEMETRY) == 64, "OOM_TELEMETRY size");
+_Static_assert(offsetof(OOM_TELEMETRY, sequence) == 8, "OOM_TELEMETRY.sequence");
+_Static_assert(offsetof(OOM_TELEMETRY, commit_charge_pages) == 32, "OOM_TELEMETRY.commit_charge_pages");
+_Static_assert(offsetof(OOM_TELEMETRY, pagefile_free_pages) == 56, "OOM_TELEMETRY.pagefile_free_pages");
+_Static_assert(sizeof(OOM_KILL_REQUEST) == 88, "OOM_KILL_REQUEST size");
+_Static_assert(offsetof(OOM_KILL_REQUEST, victim_pid) == 64, "OOM_KILL_REQUEST.victim_pid");
+_Static_assert(offsetof(OOM_KILL_REQUEST, victim_create_time) == 80, "OOM_KILL_REQUEST.victim_create_time");
+_Static_assert(sizeof(OOM_DRIVER_STATUS) == 32, "OOM_DRIVER_STATUS size");
 
 /* Not assert(): these checks must survive an NDEBUG build, and the policy
  * calls inside them have side effects that must run exactly once. */

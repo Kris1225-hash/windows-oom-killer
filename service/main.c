@@ -19,6 +19,7 @@
 #define SETTINGS_KEY L"SOFTWARE\\WinOomKiller"
 #define MIB (1024ull * 1024)
 #define MAX_SAMPLE_SETTING 10u
+#define MAX_KILLS_SETTING 10u
 #define MAX_RECOVERY_FAILURES 3u
 /* WER writes the crash event a while after boot, often after this service starts. */
 #define CRASH_EVENT_WINDOW_MS (10ull * 60 * 1000)
@@ -489,12 +490,8 @@ static DWORD RunMonitor(void)
         L"ConfirmationSamples", ReadSetting(L"ConfirmationSamples", 1), 1, MAX_SAMPLE_SETTING);
     thresholds.kill_retry_samples = ClampSetting(
         L"KillRetrySamples", ReadSetting(L"KillRetrySamples", 2), 1, MAX_SAMPLE_SETTING);
-    thresholds.max_kills = ReadSetting(L"MaxKills", 3);
-    if (!thresholds.max_kills || thresholds.max_kills > 10) {
-        LogMessage(EVENTLOG_WARNING_TYPE, L"MaxKills=%lu is outside 1..10; using 3",
-                   thresholds.max_kills);
-        thresholds.max_kills = 3;
-    }
+    thresholds.max_kills =
+        ClampSetting(L"MaxKills", ReadSetting(L"MaxKills", 3), 1, MAX_KILLS_SETTING);
 
     LogMessage(EVENTLOG_INFORMATION_TYPE,
                L"monitor started %ls: commit headroom %llu pages (%lu MiB), "

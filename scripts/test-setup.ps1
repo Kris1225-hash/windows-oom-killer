@@ -75,6 +75,8 @@ Invoke-Setup 0 '--help'
 Invoke-Setup 2 @()
 Invoke-Setup 2 'install', '--bogus'
 Invoke-Setup 2 'uninstall', '--arm'
+Invoke-Setup 2 'install', '--target'
+Invoke-Setup 2 'install', '--target', 'C:\', '--target', 'D:\'
 Invoke-Setup 1 'install', '--target', (Join-Path $temp 'no-windows-here')
 
 Write-Host "`n== online: this runner's windows"
@@ -103,10 +105,16 @@ foreach ($name in $monitorValues) { $reference["WinOomKiller\$name"] = Get-RegVa
 foreach ($name in $driverValues) { $reference["WinOomKillerDriver\$name"] = Get-RegValue "$services\WinOomKillerDriver" $name }
 Check ($reference['WinOomKiller\FailureActions'] -like 'REG_BINARY 3C00000000000000000000000300000014000000*') 'scm recorded the failure actions'
 
+# a tuned threshold must survive a reinstall; a wrongly typed one is repaired
+Invoke-Reg 'add', 'HKLM\SOFTWARE\WinOomKiller', '/v', 'CommitHeadroomMiB', '/t', 'REG_DWORD', '/d', '256', '/f'
+Invoke-Reg 'add', 'HKLM\SOFTWARE\WinOomKiller', '/v', 'MaxKills', '/t', 'REG_SZ', '/d', '3', '/f'
 Invoke-Setup 0 'install', '--stage-only', '--arm'
 Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x1') 'reinstall over existing services with --arm'
+Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'CommitHeadroomMiB') -eq 'REG_DWORD 0x100') 'reinstall keeps a tuned threshold'
+Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'MaxKills') -eq 'REG_DWORD 0x3') 'reinstall repairs a wrongly typed threshold'
 Invoke-Setup 0 'install', '--stage-only'
 Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x0') 'reinstall without --arm disarms'
+Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'CommitHeadroomMiB') -eq 'REG_DWORD 0x100') 'disarming keeps the tuned threshold'
 
 Invoke-Setup 0 'uninstall'
 Check (-not (Test-Service 'WinOomKiller')) 'monitor service deleted'

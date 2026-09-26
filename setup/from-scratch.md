@@ -10,8 +10,9 @@ windows (driver + service):
 - visual studio 2022 with the "desktop development with c++" workload
 - windows 11 sdk and wdk (the gates evidence used wdk `10.0.26100.0`,
   msbuild 17.14.51)
-- a test certificate for the driver, or a target vm with test-signing
-  mode enabled — see [windows.md](windows.md)
+- a target vm with test-signing mode on and secure boot off: the build
+  test-signs the driver, and windows refuses it otherwise — see
+  [windows.md](windows.md)
 
 any host (portable checks):
 
@@ -38,21 +39,27 @@ cmake --build build
 python3 tests/verify_contract.py # expect: driver contract verification passed
 ```
 
+on windows, cmake's default visual studio generator is multi-config:
+`cmake --build build --config Debug`, then `.\build\Debug\oom_policy_test.exe`
+(or `ctest --test-dir build -C Debug`).
+
 what they cover:
 
 - `oom_policy_test` exercises the shared pressure policy: critical
   detection at the headroom threshold, confirmation samples, kill retry
   pacing, the hard `max_kills` bound with escalation past it, state
   reset when pressure clears, and both watchdog timeouts (kill deadline,
-  monitor heartbeat)
-- `verify_contract.py` re-derives the wire structs with ctypes
-  (`OOM_TELEMETRY` = 64 bytes, `OOM_KILL_REQUEST` = 88 bytes), checks
-  the eight bugcheck codes are unique, and asserts the safety
-  invariants are literally present in the sources: protected-process
-  and protected-light rejection, pid create-time verification, the
-  `ZwTerminateProcess` + bounded wait, the
-  `\KernelObjects\MaximumCommitCondition` watch, the test-ioctl
-  confirmation gate, and the one-time bugcheck notification key
+  monitor heartbeat). it also pins the real wire-struct layout from
+  `include/oom_protocol.h` with `_Static_assert` (`OOM_TELEMETRY` = 64
+  bytes, `OOM_KILL_REQUEST` = 88 bytes, key field offsets)
+- `verify_contract.py` checks the eight bugcheck codes are unique and
+  asserts the safety invariants are literally present in the sources:
+  protected, protected-light and critical-process rejection, pid
+  create-time verification, `ZwTerminateProcess` followed by a wait
+  bounded by `OOM_KILL_WAIT_100NS`, explicit `STATUS_TIMEOUT` handling,
+  the `\KernelObjects\MaximumCommitCondition` watch, the test-ioctl
+  confirmation gate, the one-time bugcheck notification key, the
+  settings and victim-selection rules, and the event-log registration
 
 these are gates G1 and G2 in `GATES.md`; keep them green.
 

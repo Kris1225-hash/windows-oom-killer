@@ -40,13 +40,18 @@ if ($serviceExists) {
     Assert-Sc 'create WinOomKiller'
 }
 
+# New-Item -Force would wipe an existing key, so create it only when missing.
+# Armed always follows -Arm; tuned thresholds survive a reinstall.
 $settings = 'HKLM:\SOFTWARE\WinOomKiller'
-New-Item -Path $settings -Force | Out-Null
+if (-not (Test-Path $settings)) { New-Item -Path $settings | Out-Null }
 New-ItemProperty $settings Armed -PropertyType DWord -Value ([int]$Arm.IsPresent) -Force | Out-Null
-New-ItemProperty $settings CommitHeadroomMiB -PropertyType DWord -Value 512 -Force | Out-Null
-New-ItemProperty $settings ConfirmationSamples -PropertyType DWord -Value 1 -Force | Out-Null
-New-ItemProperty $settings KillRetrySamples -PropertyType DWord -Value 2 -Force | Out-Null
-New-ItemProperty $settings MaxKills -PropertyType DWord -Value 3 -Force | Out-Null
+$settingsKey = Get-Item $settings
+foreach ($default in @{ CommitHeadroomMiB = 512; ConfirmationSamples = 1; KillRetrySamples = 2; MaxKills = 3 }.GetEnumerator()) {
+    if ($settingsKey.GetValueNames() -notcontains $default.Key -or
+        $settingsKey.GetValueKind($default.Key) -ne [Microsoft.Win32.RegistryValueKind]::DWord) {
+        New-ItemProperty $settings $default.Key -PropertyType DWord -Value $default.Value -Force | Out-Null
+    }
+}
 # the service exe carries the event log message table
 $eventSource = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\WinOomKiller'
 New-Item -Path $eventSource -Force | Out-Null
