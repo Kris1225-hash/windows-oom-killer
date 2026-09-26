@@ -22,6 +22,8 @@
 #define SERVICE_FILE L"WinOomKillerService.exe"
 #define PRODUCT_DIR L"WinOomKiller"
 #define SETTINGS_KEY L"SOFTWARE\\WinOomKiller"
+/* under a control set: CurrentControlSet online, ControlSetNNN offline */
+#define EVENT_SOURCE_KEY L"Services\\EventLog\\Application\\" SERVICE_NAME
 #define TEST_TASK_NAME L"WinOomKillerBugcheckTests"
 #define OFFLINE_SYSTEM L"WinOomKillerOfflineSystem"
 #define OFFLINE_SOFTWARE L"WinOomKillerOfflineSoftware"
@@ -297,6 +299,28 @@ static BOOL WriteSettings(HKEY hklm_software, BOOL arm)
     return ok;
 }
 
+/* Makes the service exe the event source's message file, so the event viewer
+ * renders the service's log lines instead of "description not found". */
+static BOOL WriteEventSource(HKEY system, const wchar_t *control_set, const wchar_t *service_exe)
+{
+    wchar_t path[MAX_PATH];
+    HKEY key;
+    LSTATUS status;
+    BOOL ok;
+
+    _snwprintf_s(path, ARRAYSIZE(path), _TRUNCATE, L"%ls\\" EVENT_SOURCE_KEY, control_set);
+    status = RegCreateKeyExW(system, path, 0, NULL, 0, KEY_WRITE, NULL, &key, NULL);
+    if (status != ERROR_SUCCESS) {
+        Fail(L"cannot create the event source key: win32 error %ld", status);
+        return FALSE;
+    }
+    ok = SetSz(key, L"EventMessageFile", REG_EXPAND_SZ, service_exe) &&
+         SetDword(key, L"TypesSupported",
+                  EVENTLOG_ERROR_TYPE | EVENTLOG_WARNING_TYPE | EVENTLOG_INFORMATION_TYPE);
+    RegCloseKey(key);
+    return ok;
+}
+
 static void DeleteKeyTree(HKEY parent, const wchar_t *subkey, const wchar_t *label)
 {
     LSTATUS status = RegDeleteTreeW(parent, subkey);
@@ -506,6 +530,8 @@ static int InstallOnline(const SETUP_OPTIONS *options)
         } else {
             Fail(L"cannot open HKLM\\SOFTWARE for writing");
         }
+        if (WriteEventSource(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet", service_target))
+            wprintf(L"  registered event source %ls\n", SERVICE_NAME);
         if (!failures && !options->stage_only && StartServiceChecked(driver, DRIVER_NAME))
             StartServiceChecked(service, SERVICE_NAME);
     }
@@ -588,6 +614,8 @@ static int UninstallOnline(void)
     if (DataDir(path, ARRAYSIZE(path)))
         RemoveDirectoryTree(path, TRUE);
     DeleteKeyTree(HKEY_LOCAL_MACHINE, SETTINGS_KEY, L"HKLM\\" SETTINGS_KEY);
+    DeleteKeyTree(HKEY_LOCAL_MACHINE, L"SYSTEM\\CurrentControlSet\\" EVENT_SOURCE_KEY,
+                  L"event source " SERVICE_NAME);
 
     if (failures)
         return 1;
@@ -788,7 +816,8 @@ static BOOL WriteOfflineServices(OFFLINE_TARGET *target, DWORD control_set)
     static const DWORD failure_actions[] = {60, 0, 0, 3, 0x14, SC_ACTION_RESTART, 2000,
                                             SC_ACTION_RESTART, 5000, SC_ACTION_RESTART, 10000};
     static const wchar_t dependencies[] = DRIVER_NAME L"\0";
-    wchar_t path[MAX_PATH], service_command[MAX_PATH + 2];
+    wchar_t path[MAX_PATH], service_command[MAX_PATH + 2], service_exe[MAX_PATH];
+    wchar_t control_set_name[16];
     HKEY driver = NULL, service = NULL;
     LSTATUS status;
     BOOL ok;
@@ -833,6 +862,11 @@ static BOOL WriteOfflineServices(OFFLINE_TARGET *target, DWORD control_set)
          SetDword(service, L"FailureActionsOnNonCrashFailures", 1);
     RegCloseKey(service);
     RegCloseKey(driver);
+    _snwprintf_s(control_set_name, ARRAYSIZE(control_set_name), _TRUNCATE, L"ControlSet%03lu",
+                 control_set);
+    _snwprintf_s(service_exe, ARRAYSIZE(service_exe), _TRUNCATE,
+                 L"%ls\\" PRODUCT_DIR L"\\" SERVICE_FILE, target->online_pf);
+    ok = ok && WriteEventSource(target->system, control_set_name, service_exe);
     if (ok)
         wprintf(L"  registered services in ControlSet%03lu\n", control_set);
     return ok;
@@ -927,6 +961,8 @@ static int UninstallOffline(const wchar_t *windir)
                          name);
             DeleteKeyTree(target.system, path, path);
             _snwprintf_s(path, ARRAYSIZE(path), _TRUNCATE, L"%ls\\Services\\" DRIVER_NAME, name);
+            DeleteKeyTree(target.system, path, path);
+            _snwprintf_s(path, ARRAYSIZE(path), _TRUNCATE, L"%ls\\" EVENT_SOURCE_KEY, name);
             DeleteKeyTree(target.system, path, path);
         }
         if (!control_sets)

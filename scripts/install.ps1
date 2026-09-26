@@ -47,6 +47,11 @@ New-ItemProperty $settings CommitHeadroomMiB -PropertyType DWord -Value 512 -For
 New-ItemProperty $settings ConfirmationSamples -PropertyType DWord -Value 1 -Force | Out-Null
 New-ItemProperty $settings KillRetrySamples -PropertyType DWord -Value 2 -Force | Out-Null
 New-ItemProperty $settings MaxKills -PropertyType DWord -Value 3 -Force | Out-Null
+# the service exe carries the event log message table
+$eventSource = 'HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\WinOomKiller'
+New-Item -Path $eventSource -Force | Out-Null
+New-ItemProperty $eventSource EventMessageFile -PropertyType ExpandString -Value $serviceTarget -Force | Out-Null
+New-ItemProperty $eventSource TypesSupported -PropertyType DWord -Value 7 -Force | Out-Null
 & sc.exe failure WinOomKiller reset= 60 actions= restart/2000/restart/5000/restart/10000 | Out-Null
 Assert-Sc 'failure WinOomKiller'
 & sc.exe failureflag WinOomKiller 1 | Out-Null

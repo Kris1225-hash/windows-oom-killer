@@ -84,4 +84,12 @@ assert "if (status == ERROR_SUCCESS)\n        return TRUE;" in service
 assert "ProcessProtectionLevelInfo" in service and "IsProcessCritical(process, &critical)" in service
 # offline uninstall must not stop early on a long SYSTEM-hive key name
 assert "wchar_t name[256]" in installer and "status == ERROR_MORE_DATA" in installer
+# the service's events render through its own message table, registered by both installers
+messages = (root / "service/messages.mc").read_text()
+service_project = (root / "service/WinOomKillerService.vcxproj").read_text()
+assert all(f"SymbolicName={name}" in messages for name in ("MSG_INFORMATION", "MSG_WARNING", "MSG_ERROR"))
+assert '<CustomBuild Include="messages.mc">' in service_project and "messages.rc" in service_project
+assert "event_id, NULL, 1, 0, strings, NULL" in service and ", 0, 0, NULL, 1, 0, strings" not in service
+assert 'L"EventMessageFile", REG_EXPAND_SZ' in installer
+assert installer.count("EVENT_SOURCE_KEY") >= 4  # online and offline, install and uninstall
 print("driver contract verification passed")

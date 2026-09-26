@@ -13,6 +13,7 @@
 
 #include "../include/oom_policy.h"
 #include "../include/oom_protocol.h"
+#include "messages.h" /* generated from messages.mc by mc.exe */
 
 #define SERVICE_NAME L"WinOomKiller"
 #define SETTINGS_KEY L"SOFTWARE\\WinOomKiller"
@@ -59,12 +60,26 @@ static const OOM_BUGCHECK_INFO oom_bugchecks[] = {
      L"The user-mode memory monitor stopped responding during critical pressure."},
 };
 
+/* The message file maps each id to "%1", so the viewer shows our text as is. */
+static DWORD EventIdForType(WORD type)
+{
+    switch (type) {
+    case EVENTLOG_ERROR_TYPE:
+        return MSG_ERROR;
+    case EVENTLOG_WARNING_TYPE:
+        return MSG_WARNING;
+    default:
+        return MSG_INFORMATION;
+    }
+}
+
 static void LogMessage(WORD type, const wchar_t *format, ...)
 {
     wchar_t message[512];
     va_list args;
     HANDLE source;
     const wchar_t *strings[] = {message};
+    DWORD event_id = EventIdForType(type);
 
     va_start(args, format);
     _vsnwprintf_s(message, ARRAYSIZE(message), _TRUNCATE, format, args);
@@ -73,12 +88,12 @@ static void LogMessage(WORD type, const wchar_t *format, ...)
         fwprintf(stderr, L"%ls\n", message);
     /* RunMonitor keeps one source open, so a line costs one rpc instead of three. */
     if (event_source) {
-        ReportEventW(event_source, type, 0, 0, NULL, 1, 0, strings, NULL);
+        ReportEventW(event_source, type, 0, event_id, NULL, 1, 0, strings, NULL);
         return;
     }
     source = RegisterEventSourceW(NULL, SERVICE_NAME);
     if (source) {
-        ReportEventW(source, type, 0, 0, NULL, 1, 0, strings, NULL);
+        ReportEventW(source, type, 0, event_id, NULL, 1, 0, strings, NULL);
         DeregisterEventSource(source);
     }
 }

@@ -8,6 +8,7 @@ param([Parameter(Mandatory)] [string] $PackageDir)
 $ErrorActionPreference = 'Stop'
 $setup = Join-Path (Resolve-Path $PackageDir) 'WinOomKillerSetup.exe'
 $services = 'HKLM\SYSTEM\CurrentControlSet\Services'
+$eventSourceKey = 'EventLog\Application\WinOomKiller'
 $temp = if ($env:RUNNER_TEMP) { $env:RUNNER_TEMP } else { [IO.Path]::GetTempPath() }
 $failed = 0
 
@@ -92,6 +93,9 @@ foreach ($name in $settings.Keys) {
     Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' $name) -eq $settings[$name]) "$name default"
 }
 Check ((& sc.exe query WinOomKillerDriver | Out-String) -match 'STOPPED') '--stage-only loaded nothing'
+$eventMessageFile = Get-RegValue "$services\$eventSourceKey" 'EventMessageFile'
+Check ($eventMessageFile -eq "REG_EXPAND_SZ $serviceExe") 'event source uses the service exe as its message file'
+Check ((Get-RegValue "$services\$eventSourceKey" 'TypesSupported') -eq 'REG_DWORD 0x7') 'event source supports error, warning, information'
 
 # what the SCM wrote is the reference for the offline writer below
 $reference = @{}
@@ -110,6 +114,7 @@ Check (-not (Test-Service 'WinOomKillerDriver')) 'driver service deleted'
 Check (-not (Test-Path $serviceExe)) 'service binary removed'
 Check (-not (Test-Path $driverSys)) 'driver binary removed'
 Check (-not (Test-RegKey 'HKLM\SOFTWARE\WinOomKiller')) 'settings removed'
+Check (-not (Test-RegKey "$services\$eventSourceKey")) 'event source removed'
 Invoke-Setup 0 'uninstall'
 
 Write-Host "`n== offline: a fake windows tree, as WinRE would see a C: drive"
@@ -162,6 +167,8 @@ try {
         Check ($actual -eq $reference[$key]) "offline $key matches the scm ($actual)"
     }
     Check ((Get-RegValue "$offlineServices\WinOomKillerDriver" 'ImagePath') -eq 'REG_EXPAND_SZ \SystemRoot\System32\drivers\WinOomKillerDriver.sys') 'offline driver image path'
+    Check ((Get-RegValue "$offlineServices\$eventSourceKey" 'EventMessageFile') -eq $eventMessageFile) 'offline event source matches the online one'
+    Check ((Get-RegValue "$offlineServices\$eventSourceKey" 'TypesSupported') -eq 'REG_DWORD 0x7') 'offline event source types'
     Check ((Get-RegValue "$offlineSoftware\WinOomKiller" 'Armed') -eq 'REG_DWORD 0x1') 'offline install honours --arm'
     foreach ($name in $settings.Keys) {
         Check ((Get-RegValue "$offlineSoftware\WinOomKiller" $name) -eq $settings[$name]) "offline $name default"
@@ -178,6 +185,7 @@ Mount-Offline
 try {
     Check (-not (Test-RegKey "$offlineSystem\ControlSet001\Services\WinOomKiller")) 'offline monitor service removed'
     Check (-not (Test-RegKey "$offlineSystem\ControlSet001\Services\WinOomKillerDriver")) 'offline driver service removed'
+    Check (-not (Test-RegKey "$offlineSystem\ControlSet001\Services\$eventSourceKey")) 'offline event source removed'
     Check (-not (Test-RegKey "$offlineSystem\ControlSet002\Services\WinOomKillerDriver")) 'last-known-good control set cleaned too'
     Check (Test-RegKey "$offlineSystem\ControlSet001\Services\Unrelated") 'unrelated services left alone'
     Check (-not (Test-RegKey "$offlineSoftware\WinOomKiller")) 'offline settings removed'

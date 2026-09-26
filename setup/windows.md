@@ -158,8 +158,8 @@ WinOomKillerSetup.exe uninstall                 # the running windows
 WinOomKillerSetup.exe uninstall --target D:\    # an offline windows, e.g. from WinRE
 ```
 
-both remove the services, binaries, settings, `ProgramData` folder, and
-the bugcheck runner's startup task. offline, every control set is
+both remove the services, binaries, settings, the `WinOomKiller` event
+source, the `ProgramData` folder, and the bugcheck runner's startup task. offline, every control set is
 cleaned, so last-known-good can't bring the driver back. that makes
 `uninstall --target` from WinRE the way out of a bugcheck loop
 (`0xE0F00008` from a monitor that dies at boot, or an interrupted
@@ -175,6 +175,7 @@ sc.exe delete WinOomKillerDriver
 Remove-Item "$env:ProgramFiles\WinOomKiller" -Recurse -Force
 Remove-Item "$env:SystemRoot\System32\drivers\WinOomKillerDriver.sys" -Force
 Remove-Item HKLM:\SOFTWARE\WinOomKiller -Recurse -Force
+Remove-Item HKLM:\SYSTEM\CurrentControlSet\Services\EventLog\Application\WinOomKiller -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item "$env:ProgramData\WinOomKiller" -Recurse -Force -ErrorAction SilentlyContinue
 Unregister-ScheduledTask WinOomKillerBugcheckTests -Confirm:$false -ErrorAction SilentlyContinue
 ```

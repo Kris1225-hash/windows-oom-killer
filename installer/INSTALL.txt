@@ -63,8 +63,8 @@ in windows:   WinOomKillerSetup.exe uninstall
 from WinRE:   WinOomKillerSetup.exe uninstall --target D:\
 
 uninstall removes both services, the driver and service binaries, the
-settings under HKLM\SOFTWARE\WinOomKiller, C:\ProgramData\WinOomKiller, and
-the bugcheck test runner's startup task. offline, it cleans every control
+settings under HKLM\SOFTWARE\WinOomKiller, the WinOomKiller event source,
+C:\ProgramData\WinOomKiller, and the bugcheck test runner's startup task. offline, it cleans every control
 set, so last-known-good cannot bring the driver back. if a machine is stuck
 in a bugcheck loop, this is how you get it out.
 
@@ -78,6 +78,9 @@ what gets installed
   HKLM\SOFTWARE\WinOomKiller                             Armed=0, CommitHeadroomMiB=512,
                                                          ConfirmationSamples=1,
                                                          KillRetrySamples=2, MaxKills=3
+  event log source WinOomKiller (Application log)       message file: the service exe;
+                                                         event ids 1 info, 2 warning,
+                                                         3 error
 
 symbols\ holds the .pdb files for reading crash dumps in windbg.
 driver-package\ holds the wdk's signed .inf/.cat package, if you prefer that.

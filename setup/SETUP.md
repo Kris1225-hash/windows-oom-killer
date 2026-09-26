@@ -75,8 +75,10 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 - **where evidence lands:**
   - event viewer → system, id 1001, provider
     `Microsoft-Windows-WER-SystemErrorReporting`: recorded bugchecks
-  - event source `WinOomKiller`: service log lines (started
-    armed/disarmed, victim terminated, notifications, failures)
+  - event source `WinOomKiller` (application log): service log lines
+    (started armed/disarmed, victim terminated, notifications,
+    failures). the installers register the service exe as its message
+    file; event id 1 is information, 2 warning, 3 error
   - `C:\Windows\Minidump\*.dmp`: crash dumps
   - `C:\ProgramData\WinOomKiller\`: bugcheck test runner state,
     results, and log

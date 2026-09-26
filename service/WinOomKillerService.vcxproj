@@ -27,7 +27,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(ProjectDir)..\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)..\include;$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <PreprocessorDefinitions>_WIN32_WINNT=0x0A00;PSAPI_VERSION=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <LanguageStandard_C>stdc17</LanguageStandard_C>
       <WarningLevel>Level4</WarningLevel>
@@ -36,14 +36,25 @@
       <RuntimeLibrary Condition="'$(UseDebugLibraries)'=='true'">MultiThreadedDebug</RuntimeLibrary>
       <RuntimeLibrary Condition="'$(UseDebugLibraries)'!='true'">MultiThreaded</RuntimeLibrary>
     </ClCompile>
+    <ResourceCompile>
+      <!-- the generated messages.rc names MSG00409.bin, which mc writes next to it -->
+      <AdditionalIncludeDirectories>$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
     <Link><SubSystem>Console</SubSystem><AdditionalDependencies>psapi.lib;advapi32.lib;wevtapi.lib;wtsapi32.lib;%(AdditionalDependencies)</AdditionalDependencies></Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='BugcheckTest|x64'">
     <ClCompile><PreprocessorDefinitions>OOM_ENABLE_TEST_IOCTL=1;%(PreprocessorDefinitions)</PreprocessorDefinitions></ClCompile>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <!-- the event log message table: messages.h for main.c, messages.rc for the exe -->
+    <CustomBuild Include="messages.mc">
+      <Command>mc.exe -U -h "$(IntDir)." -r "$(IntDir)." "%(FullPath)"</Command>
+      <Message>compiling event log messages</Message>
+      <Outputs>$(IntDir)messages.h;$(IntDir)messages.rc;$(IntDir)MSG00409.bin</Outputs>
+    </CustomBuild>
     <ClCompile Include="main.c" />
     <ClCompile Include="..\shared\oom_policy.c" />
+    <ResourceCompile Include="$(IntDir)messages.rc" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>
