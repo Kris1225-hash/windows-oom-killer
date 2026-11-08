@@ -100,9 +100,16 @@ foreach ($name in $driverValues) { $reference["WinOomKillerDriver\$name"] = Get-
 Check ($reference['WinOomKiller\FailureActions'] -like 'REG_BINARY 3C00000000000000000000000300000014000000*') 'scm recorded the failure actions'
 
 Invoke-Setup 0 'install', '--stage-only', '--arm'
-Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x1') 'reinstall over existing services with --arm'
-Invoke-Setup 0 'install', '--stage-only'
-Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x0') 'reinstall without --arm disarms'
+try {
+    Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x1') 'reinstall over existing services with --arm'
+    Invoke-Setup 0 'install', '--stage-only'
+    Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x0') 'reinstall without --arm disarms'
+} finally {
+    # a failure between arming and the uninstall below must not leave this machine armed
+    $ErrorActionPreference = 'Continue'
+    & $setup uninstall *> $null
+    $ErrorActionPreference = 'Stop'
+}
 
 Invoke-Setup 0 'uninstall'
 Check (-not (Test-Service 'WinOomKiller')) 'monitor service deleted'

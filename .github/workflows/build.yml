@@ -45,7 +45,7 @@ jobs:
         run: |
           sha="${GITHUB_SHA::7}"
           if [[ "$GITHUB_EVENT_NAME" == push && "$GITHUB_REF" == refs/tags/v* ]]; then
-            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9A-Za-z.-]+$ ]]; then
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9A-Za-z][0-9A-Za-z.-]*$ ]]; then
               echo "::error::tag $GITHUB_REF_NAME is not a usable version"; exit 1
             fi
             version="${GITHUB_REF_NAME#v}" tag="$GITHUB_REF_NAME" prerelease=false publish=true

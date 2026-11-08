@@ -34,6 +34,29 @@ class KillRequest(ctypes.Structure):
 
 assert ctypes.sizeof(Telemetry) == 64
 assert ctypes.sizeof(KillRequest) == 88
+for name, offset in (
+    ("sequence", 8), ("service_pid", 16), ("page_size", 20), ("backing_reason", 24),
+    ("commit_charge_pages", 32), ("commit_limit_pages", 40),
+    ("available_physical_pages", 48), ("pagefile_free_pages", 56),
+):
+    assert getattr(Telemetry, name).offset == offset, name
+for name, offset in (
+    ("victim_pid", 64), ("victim_private_pages", 72), ("victim_create_time", 80),
+):
+    assert getattr(KillRequest, name).offset == offset, name
+
+# the header offsets are pinned on both sides: FIELD_OFFSET in the driver and
+# _Static_assert(offsetof(...)) in the portable policy test that includes it
+policy_test = (root / "tests/test_policy.c").read_text()
+for field in ("sequence", "service_pid", "page_size", "backing_reason",
+              "commit_charge_pages", "commit_limit_pages",
+              "available_physical_pages", "pagefile_free_pages"):
+    assert f"FIELD_OFFSET(OOM_TELEMETRY, {field})" in driver, field
+    assert f"offsetof(OOM_TELEMETRY, {field}) == " in policy_test, field
+for field, offset in (("victim_pid", 64), ("victim_private_pages", 72),
+                      ("victim_create_time", 80)):
+    assert f"FIELD_OFFSET(OOM_KILL_REQUEST, {field}) == {offset}" in driver, field
+    assert f"offsetof(OOM_KILL_REQUEST, {field}) == {offset}" in policy_test, field
 assert "KeBugCheckEx(code, (ULONG_PTR)t->commit_charge_pages" in driver
 assert "(ULONG_PTR)t->commit_limit_pages" in driver
 assert "(ULONG_PTR)t->available_physical_pages" in driver

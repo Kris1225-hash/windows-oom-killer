@@ -8,7 +8,7 @@ test tooling crashes the vm eight consecutive times on purpose.
 ## 0. prerequisites
 
 - built binaries (`from-scratch.md`, step 3)
-- the driver test-signed, or test-signing mode on the target vm:
+- the driver test-signed (the build does that), and test-signing mode on the target vm (secure boot off):
 
   ```powershell
   bcdedit /set testsigning on
@@ -36,10 +36,16 @@ writes the default settings under `HKLM\SOFTWARE\WinOomKiller`
 passed (`-StageOnly` registers everything but loads nothing until the
 next reboot).
 
-`WinOomKillerSetup.exe install` (from a release zip, or
-`installer\x64\<Config>\` next to the built driver and service) does
-the same thing without powershell; `--stage-only` and `--arm` work the
-same way.
+`WinOomKillerSetup.exe install` (from a release zip or the
+`dist\WinOomKiller-<version>-<config>-x64` staging folder
+`scripts/package-release.ps1` produces) does the same thing without
+powershell. the build writes the three binaries to separate
+`driver\x64\<config>`, `service\x64\<config>`, and
+`installer\x64\<config>` folders, so an exe straight from
+`installer\x64\<config>` needs `--payload DIR` pointing at the matching
+driver/service output. on an existing install, `--stage-only` / `-StageOnly` stops
+the running monitor and driver first, so the machine is unmonitored and
+disarmed until that boot.
 
 ### from WinRE, or into any windows that isn't running
 
@@ -60,7 +66,7 @@ it can see. unlock a bitlocker drive with `manage-bde -unlock` first.
 the install takes effect on that windows' next boot.
 
 verify the disarmed baseline before arming anything: event viewer →
-windows logs → application/system, source `WinOomKiller`, should show
+windows logs → application, source `WinOomKiller`, should show
 `monitor started disarmed: commit headroom ... pages`.
 
 ## 2. arm
@@ -70,7 +76,9 @@ Set-ItemProperty HKLM:\SOFTWARE\WinOomKiller Armed -Value 1 -Type DWord
 Restart-Service WinOomKiller
 ```
 
-or re-run the installer with `-Arm`. the service logs
+or re-run the installer with `-Arm`; every install rewrites
+`Armed` and the thresholds to their defaults, so re-check tuned values
+afterward. the service logs
 `monitor started armed`. `Armed` must be a `REG_DWORD`: `reg add` without
 `/t REG_DWORD` writes a string, which the service ignores (it logs
 `ignoring setting Armed` and stays disarmed). the driver still independently refuses kill
@@ -89,22 +97,26 @@ the hog allocates in 64 MiB chunks, touches every page (so it really
 commits), prints its pid, and holds until ctrl-c. with a small enough
 pagefile the commit headroom drops below `CommitHeadroomMiB` and, after
 `ConfirmationSamples`, the service asks the driver to terminate the
-largest eligible private-commit process — the hog.
+largest eligible private-commit process. that is the hog only if it is
+the largest eligible process on the machine: close other large apps or
+raise `-MemoryMiB` until it clearly is.
 
-expected outcome (this is gate G4's shape): the hog dies with the
-service's `STATUS_NO_MEMORY` termination code, a popup appears in the
-hog's session naming process, pid, reason, and private usage, the
-`WinOomKiller` event source logs the kill, and commit headroom recovers
-without a reboot. if nothing dies: check `Armed`, pagefile size vs.
-`CommitHeadroomMiB`, and that the hog is neither session 0, a
-protected/critical process, nor under the driver's 64 MiB victim floor.
+expected outcome (this is gate G4's shape): that process dies with the
+driver's `STATUS_NO_MEMORY` termination code (check the
+`terminated pid <n>` line), a popup appears in its session naming
+process, pid, reason, and private usage, the `WinOomKiller` event source
+logs the kill, and commit headroom recovers without a reboot. if nothing
+dies: check `Armed`, pagefile size vs. `CommitHeadroomMiB`, and that a
+candidate is not session 0, protected/critical, or under the driver's
+64 MiB victim floor.
 
 tuning: registry thresholds may be lowered freely. the driver's
 compiled ceilings (`OOM_COMMIT_HEADROOM_BYTES`, `OOM_MIN_VICTIM_BYTES`
 in `include/oom_protocol.h`) cap what it will accept, so the service
-clamps `CommitHeadroomMiB` to 512 and `ConfirmationSamples` /
-`KillRetrySamples` to 1–10, logs every clamp, and lists the effective
-values in its `monitor started` line.
+clamps `CommitHeadroomMiB` to 512, clamps `ConfirmationSamples` /
+`KillRetrySamples` to 1–10, accepts `MaxKills` only in 1–10 (anything
+else falls back to 3), logs every value it changed, and lists the
+effective values in its `monitor started` line.
 
 ## 4. bugcheck testing (the part that destroys the vm's uptime)
 
@@ -138,18 +150,26 @@ automated sweep of all eight codes across eight reboots:
 the runner registers a startup task, verifies each preceding system
 event (WER id 1001) matches the triggered code and its four marker
 parameters before causing the next crash, stops on any mismatch, and
-removes its task after eight successes. cancel an active run with
+removes its task after eight successes. `-Start` installs the
+`BugcheckTest` driver and service from the checkout, so build that
+configuration first; it sets the monitor to Manual and leaves those
+crash-test binaries installed, so reinstall a Debug or Release build
+when the sweep is done. cancel an active run with
 `test-bugchecks.ps1 -Cancel`; resume an interrupted one with
 `-Resume`. state, results, and the log live under
-`C:\ProgramData\WinOomKiller\` and are written through (flushed) so
-they survive the crashes they are recording.
+`C:\ProgramData\WinOomKiller\` (the runner itself is copied into
+`%ProgramFiles%\WinOomKiller\` so the SYSTEM startup task never executes
+a script from a user-writable directory) and are written through
+(flushed) so they survive the crashes they are recording.
 
 after any custom bugcheck and reboot, the normal service translates the
-latest WER event into a one-time friendly popup once an interactive
-session exists. WER writes that event some time after boot, so the
-service keeps checking every 10 seconds for the first ten minutes of
-uptime; `LastNotifiedBugcheckRecord` guarantees each crash is reported
-exactly once (gate G9).
+latest WER event into a friendly popup in the active console session
+(an RDP-only logon does not receive it) once one exists. WER writes
+that event some time after boot, so the service keeps checking every
+10 seconds for the first ten minutes of uptime; `LastNotifiedBugcheckRecord`
+makes each crash reported at most once (the marker write is
+best-effort), and a WER event written after the window is reported on
+a later boot (gate G9).
 
 ## 5. uninstall
 
@@ -183,11 +203,12 @@ Unregister-ScheduledTask WinOomKillerBugcheckTests -Confirm:$false -ErrorAction 
 
 | symptom | cause |
 |---|---|
-| `STATUS_ACCESS_DENIED` from kill ioctl | driver rejected the victim: protected/critical, system process, pid ≤ 4, the service itself, under 64 MiB private, pid create-time mismatch (reuse), or telemetry not critical/armed |
-| `STATUS_RETRY` from heartbeat | stale or duplicate telemetry sequence number; the service increments per sample |
+| `driver rejected kill of pid N: win32 error 5` | driver rejected the victim: protected/critical, system process, pid ≤ 4, the service itself, under 64 MiB private, pid create-time mismatch (reuse), or telemetry not critical/armed |
+| `driver rejected kill of pid N: win32 error 87` | the victim exited or the request was invalid; the service offers a different victim next sample |
+| `driver heartbeat failed: win32 error 1237` | stale or duplicate telemetry sequence number; the service increments per sample |
 | `ignoring setting ...` in the event log | that value is not a `REG_DWORD`; the service used the default (for `Armed`, disarmed) |
 | `the driver declined to escalate` | pressure was below the driver's ceiling when the service asked for a bugcheck |
-| `STATUS_ACCESS_DENIED` from any ioctl with the monitor running | device single-owner: another instance already holds `\\.\WinOomKiller` |
+| `cannot open driver device: win32 error 5` | device single-owner: another instance already holds `\\.\WinOomKiller`; a second opener fails at CreateFile, before any ioctl |
 | driver won't start | not test-signed / test-signing mode off; check `sc.exe qc WinOomKillerDriver` binPath and the system event log |
 | no popup after kill | victim ran in a session with no interactive user, or `WTSSendMessageW` failed — the service logs the win32 error |
 | repeated bugcheck `0xE0F00008` | the monitor service died or hung during critical pressure; that bugcheck is the watchdog doing its job — look at why the service stopped |

@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 project(windows_oom_killer_policy C)
 
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+
 add_executable(oom_policy_test shared/oom_policy.c tests/test_policy.c)
 target_include_directories(oom_policy_test PRIVATE include)
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")

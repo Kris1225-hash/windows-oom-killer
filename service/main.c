@@ -602,11 +602,23 @@ static DWORD RunMonitor(void)
     }
 
     if (device != INVALID_HANDLE_VALUE) {
-        if (result == ERROR_SUCCESS) {
-            OOM_TELEMETRY disarm;
-            if (CollectTelemetry(&disarm, ++sequence, &thresholds, FALSE))
-                SendIoctl(device, IOCTL_OOM_HEARTBEAT, &disarm, sizeof(disarm));
+        /* A clean stop must always disarm: if the loop ended on a driver error, or the
+         * final sample failed, the watchdog would otherwise stay armed with stale
+         * critical telemetry and bugcheck the machine after the service is gone. */
+        OOM_TELEMETRY disarm;
+        BOOL have_sample = CollectTelemetry(&disarm, ++sequence, &thresholds, FALSE);
+
+        if (!have_sample) {
+            ZeroMemory(&disarm, sizeof(disarm));
+            disarm.version = OOM_PROTOCOL_VERSION;
+            disarm.sequence = sequence;
+            disarm.service_pid = GetCurrentProcessId();
+            disarm.page_size = system_info.dwPageSize;
+            disarm.commit_limit_pages = 1;
         }
+        if (!SendIoctl(device, IOCTL_OOM_HEARTBEAT, &disarm, sizeof(disarm)))
+            LogMessage(EVENTLOG_ERROR_TYPE, L"could not disarm the driver: win32 error %lu",
+                       GetLastError());
         CloseHandle(device);
     }
 
@@ -723,12 +735,21 @@ static void WINAPI ServiceMain(DWORD argc, wchar_t **argv)
     UNREFERENCED_PARAMETER(argc);
     UNREFERENCED_PARAMETER(argv);
 
-    service_status_handle = RegisterServiceCtrlHandlerExW(SERVICE_NAME, ServiceControl, NULL);
-    if (!service_status_handle)
-        return;
+    /* Created before the control handler is registered: a stop that arrives
+     * immediately would otherwise find no event to signal and be lost. */
     stop_event = CreateEventW(NULL, TRUE, FALSE, NULL);
     if (!stop_event) {
-        SetServiceState(SERVICE_STOPPED, GetLastError(), FALSE);
+        error = GetLastError();
+        service_status_handle = RegisterServiceCtrlHandlerExW(SERVICE_NAME, ServiceControl, NULL);
+        if (service_status_handle)
+            SetServiceState(SERVICE_STOPPED, error, FALSE);
+        return;
+    }
+    service_status_handle = RegisterServiceCtrlHandlerExW(SERVICE_NAME, ServiceControl, NULL);
+    if (!service_status_handle) {
+        /* no handler exists, so nothing can signal the event after this point */
+        CloseHandle(stop_event);
+        stop_event = NULL;
         return;
     }
     SetServiceState(SERVICE_RUNNING, ERROR_SUCCESS, FALSE);

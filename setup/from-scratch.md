@@ -10,8 +10,8 @@ windows (driver + service):
 - visual studio 2022 with the "desktop development with c++" workload
 - windows 11 sdk and wdk (the gates evidence used wdk `10.0.26100.0`,
   msbuild 17.14.51)
-- a test certificate for the driver, or a target vm with test-signing
-  mode enabled — see [windows.md](windows.md)
+- the build test-signs the driver, and a target vm with test-signing
+  mode enabled (secure boot off) — see [windows.md](windows.md)
 
 any host (portable checks):
 
@@ -37,6 +37,10 @@ cmake --build build
 
 python3 tests/verify_contract.py # expect: driver contract verification passed
 ```
+
+on windows the default (visual studio) generator is multi-config, so use
+`cmake --build build --config Debug` and run
+`.\build\Debug\oom_policy_test.exe`, or `ctest --test-dir build -C Debug`.
 
 what they cover:
 

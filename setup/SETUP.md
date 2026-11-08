@@ -51,7 +51,8 @@ facts below are drawn from the README, GATES.md evidence, and the source.
   `KillRetrySamples` (2), `MaxKills` (3). lowering thresholds is
   supported. the service clamps `CommitHeadroomMiB` to the driver's
   ceiling (`OOM_COMMIT_HEADROOM_BYTES` in `include/oom_protocol.h`) and
-  the two sample counts to 1–10, and logs what it changed. a value of
+  the two sample counts to 1–10, accepts `MaxKills` only in 1–10
+  (anything else falls back to 3), and logs what it changed. a value of
   the wrong registry type is ignored in favour of the default, so only
   a `REG_DWORD` 1 arms the monitor.
 
@@ -65,8 +66,9 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 
 - **the device has one owner.** one service instance holds
   `\\.\WinOomKiller` at a time. during manual bugcheck testing, keep
-  the normal monitor stopped and start only the driver service, or
-  ioctls answer `STATUS_ACCESS_DENIED`.
+  the normal monitor stopped and start only the driver service, or a
+  second `CreateFile` fails with `ERROR_ACCESS_DENIED` (win32 5) before
+  any ioctl is sent.
 
 - **bugchecks:** `0xE0F00001`–`0xE0F00008` (see README table). all four
   parameters: commit charge (pages), commit limit (pages), available
@@ -75,8 +77,8 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 - **where evidence lands:**
   - event viewer → system, id 1001, provider
     `Microsoft-Windows-WER-SystemErrorReporting`: recorded bugchecks
-  - event source `WinOomKiller`: service log lines (started
-    armed/disarmed, victim terminated, notifications, failures)
+  - event source `WinOomKiller` (Application log): service log lines
+    (started armed/disarmed, victim terminated, notifications, failures)
   - `C:\Windows\Minidump\*.dmp`: crash dumps
   - `C:\ProgramData\WinOomKiller\`: bugcheck test runner state,
     results, and log
@@ -84,10 +86,13 @@ facts below are drawn from the README, GATES.md evidence, and the source.
 - **notifications:** after a recovery kill, a popup appears in the
   victim's session (`WTSSendMessageW`) naming process, pid, reason, and
   private usage. after a reboot following a custom bugcheck, the
-  service translates the latest WER event into a friendly one-time
-  popup. WER logs that event some time after boot, so the service keeps
-  looking for the first ten minutes of uptime; `LastNotifiedBugcheckRecord`
-  (QWORD) makes each crash report exactly once.
+  service translates the latest WER event into a friendly popup in the
+  active console session (an RDP-only logon does not get it). WER logs
+  that event some time after boot, so the service keeps looking for the
+  first ten minutes of uptime; `LastNotifiedBugcheckRecord` (QWORD)
+  makes each crash reported at most once (the marker write is
+  best-effort), and a late event is reported on a later boot. service
+  log lines go to the Application log, source `WinOomKiller`.
 
 - **gates:** every stage of this project was verified against the
   checks in `GATES.md`, including a real kill under 32 GiB pressure

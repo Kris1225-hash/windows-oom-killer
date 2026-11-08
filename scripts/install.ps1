@@ -6,7 +6,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$installDir = Join-Path $env:ProgramFiles 'WinOomKiller'
+$programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+$installDir = Join-Path $programFiles 'WinOomKiller'
 $driverTarget = Join-Path $env:SystemRoot 'System32\drivers\WinOomKillerDriver.sys'
 $serviceTarget = Join-Path $installDir 'WinOomKillerService.exe'
 $serviceExists = Get-Service WinOomKiller -ErrorAction SilentlyContinue

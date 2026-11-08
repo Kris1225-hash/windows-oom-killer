@@ -8,7 +8,10 @@ recovery fails. only install it on a machine you are prepared to lose. never
 deploy it where a crash could cost lives. it installs disarmed. see LICENSE.
 
 keep WinOomKillerSetup.exe next to WinOomKillerDriver.sys and
-WinOomKillerService.exe. it installs whatever sits beside it.
+WinOomKillerService.exe. it installs whatever sits beside it, without
+checking signatures: unpack the zip into a folder only administrators
+can write to, and verify the zip's sha256 against the release page
+before running the exe elevated.
 
 
 before you install: test signing
