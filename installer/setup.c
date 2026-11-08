@@ -469,6 +469,7 @@ static int InstallOnline(const SETUP_OPTIONS *options)
     SERVICE_FAILURE_ACTIONS_FLAG failure_flag = {TRUE};
     SC_HANDLE scm, driver = NULL, service = NULL;
     HKEY software;
+    BOOL settings_written = FALSE;
 
     if (!ResolvePayload(options, driver_source, service_source))
         return 1;
@@ -510,6 +511,9 @@ static int InstallOnline(const SETUP_OPTIONS *options)
             Fail(L"cannot configure service recovery: win32 error %lu", GetLastError());
         if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, L"SOFTWARE", 0, KEY_WRITE, &software) ==
             ERROR_SUCCESS) {
+            /* a partial write can already have set Armed, so treat the key as
+             * touched even if a later value fails */
+            settings_written = TRUE;
             if (WriteSettings(software, options->arm))
                 wprintf(L"  wrote HKLM\\%ls\n", SETTINGS_KEY);
             RegCloseKey(software);
@@ -525,8 +529,20 @@ static int InstallOnline(const SETUP_OPTIONS *options)
     if (driver)
         CloseServiceHandle(driver);
     CloseServiceHandle(scm);
-    if (failures)
+    if (failures) {
+        /* an install that reports failure must not arm the next boot */
+        if (settings_written && !options->stage_only) {
+            HKEY settings;
+            if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, SETTINGS_KEY, 0, KEY_SET_VALUE, &settings) ==
+                ERROR_SUCCESS) {
+                DWORD zero = 0;
+                RegSetValueExW(settings, L"Armed", 0, REG_DWORD, (const BYTE *)&zero,
+                               (DWORD)sizeof(zero));
+                RegCloseKey(settings);
+            }
+        }
         return 1;
+    }
     wprintf(L"%ls; enforcement is %ls\n", options->stage_only ? L"staged" : L"installed",
             options->arm ? L"ARMED" : L"disarmed");
     return 0;
@@ -562,14 +578,20 @@ static void DeleteTestTaskOnline(void)
     startup.cb = (DWORD)sizeof(startup);
     startup.dwFlags = STARTF_USESTDHANDLES;
     if (!CreateProcessW(NULL, command, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL,
-                        &startup, &process))
+                        &startup, &process)) {
+        Warn(L"cannot remove scheduled task %ls: win32 error %lu", TEST_TASK_NAME,
+             GetLastError());
         return;
+    }
     WaitForSingleObject(process.hProcess, 30000);
     GetExitCodeProcess(process.hProcess, &exit_code);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
     if (exit_code == 0)
         wprintf(L"  removed scheduled task %ls\n", TEST_TASK_NAME);
+    else
+        Warn(L"cannot remove scheduled task %ls: schtasks exit code %lu (it may not exist)",
+             TEST_TASK_NAME, exit_code);
 }
 
 static int UninstallOnline(void)
@@ -583,8 +605,10 @@ static int UninstallOnline(void)
         return 1;
     }
     wprintf(L"uninstalling from the running windows\n");
-    StopServiceAndWait(scm, SERVICE_NAME);
-    StopServiceAndWait(scm, DRIVER_NAME);
+    if (!StopServiceAndWait(scm, SERVICE_NAME))
+        Fail(L"the monitor did not stop; it keeps running until the next boot");
+    if (!StopServiceAndWait(scm, DRIVER_NAME))
+        Fail(L"the driver did not unload; it stays loaded until the next boot");
     DeleteServiceByName(scm, SERVICE_NAME);
     DeleteServiceByName(scm, DRIVER_NAME);
     CloseServiceHandle(scm);
@@ -685,8 +709,10 @@ static BOOL LoadHive(OFFLINE_TARGET *target, const wchar_t *file, const wchar_t 
     wchar_t path[MAX_PATH];
     LSTATUS status;
 
-    if (!JoinPath(path, ARRAYSIZE(path), target->windir, file))
+    if (!JoinPath(path, ARRAYSIZE(path), target->windir, file)) {
+        Fail(L"the offline hive path is too long");
         return FALSE;
+    }
     RegUnLoadKeyW(HKEY_LOCAL_MACHINE, mount); /* a previous run that died mid-way */
     status = RegLoadKeyW(HKEY_LOCAL_MACHINE, mount, path);
     if (status != ERROR_SUCCESS) {
@@ -738,7 +764,8 @@ static void ExpandSystemDrive(wchar_t *path, size_t count, wchar_t drive)
     _snwprintf_s(path, count, _TRUNCATE, L"%lc:%ls", drive, rest);
 }
 
-static BOOL OpenOfflineTarget(const wchar_t *windir, OFFLINE_TARGET *target)
+static BOOL OpenOfflineTarget(const wchar_t *windir, OFFLINE_TARGET *target,
+                              BOOL need_program_files)
 {
     size_t windir_length, tail_length;
     const wchar_t *tail;
@@ -776,12 +803,22 @@ static BOOL OpenOfflineTarget(const wchar_t *windir, OFFLINE_TARGET *target)
     wcsncpy_s(target->root, ARRAYSIZE(target->root), windir, windir_length - tail_length);
     if (towupper(target->online_pf[0]) != towupper(target->online_windir[0]) ||
         target->online_pf[1] != L':') {
-        Fail(L"that windows keeps program files on another drive (%ls); install it online "
-             L"instead", target->online_pf);
+        if (need_program_files) {
+            Fail(L"that windows keeps program files on another drive (%ls); install it online "
+                 L"instead", target->online_pf);
+            return FALSE;
+        }
+        /* Uninstall must still remove the service keys and driver even when the
+         * product directory path cannot be derived; skip that one directory. */
+        target->offline_pf[0] = L'\0';
+        return TRUE;
+    }
+    if (!JoinPath(target->offline_pf, ARRAYSIZE(target->offline_pf), target->root,
+                  target->online_pf + 2)) {
+        Fail(L"cannot resolve that windows' program files path %ls", target->online_pf);
         return FALSE;
     }
-    return JoinPath(target->offline_pf, ARRAYSIZE(target->offline_pf), target->root,
-                    target->online_pf + 2);
+    return TRUE;
 }
 
 static BOOL ReadControlSet(HKEY system, const wchar_t *name, DWORD *value)
@@ -836,11 +873,16 @@ static BOOL WriteOfflineServices(OFFLINE_TARGET *target, DWORD control_set)
          SetSz(service, L"DisplayName", REG_SZ, SERVICE_NAME) &&
          SetSz(service, L"ObjectName", REG_SZ, L"LocalSystem") &&
          SetString(service, L"DependOnService", REG_MULTI_SZ, dependencies,
-                   ARRAYSIZE(dependencies)) &&
-         RegSetValueExW(service, L"FailureActions", 0, REG_BINARY,
-                        (const BYTE *)failure_actions,
-                        (DWORD)sizeof(failure_actions)) == ERROR_SUCCESS &&
-         SetDword(service, L"FailureActionsOnNonCrashFailures", 1);
+                   ARRAYSIZE(dependencies));
+    if (ok && RegSetValueExW(service, L"FailureActions", 0, REG_BINARY,
+                             (const BYTE *)failure_actions,
+                             (DWORD)sizeof(failure_actions)) != ERROR_SUCCESS) {
+        Fail(L"cannot write FailureActions in ControlSet%03lu: win32 error %ld", control_set,
+             GetLastError());
+        ok = FALSE;
+    }
+    if (ok)
+        ok = SetDword(service, L"FailureActionsOnNonCrashFailures", 1);
     RegCloseKey(service);
     RegCloseKey(driver);
     if (ok)
@@ -860,7 +902,7 @@ static int InstallOffline(const SETUP_OPTIONS *options, const wchar_t *windir)
     if (options->stage_only)
         Warn(L"--stage-only is implied offline: nothing loads until that windows boots");
     wprintf(L"installing into the offline windows at %ls\n", windir);
-    if (OpenOfflineTarget(windir, &target)) {
+    if (OpenOfflineTarget(windir, &target, TRUE)) {
         wprintf(L"  that windows calls itself %ls\n", target.online_windir);
         if (!ReadControlSet(target.system, L"Current", &current))
             Fail(L"the offline SYSTEM hive has no Select\\Current control set");
@@ -874,6 +916,8 @@ static int InstallOffline(const SETUP_OPTIONS *options, const wchar_t *windir)
                 WriteOfflineServices(&target, fallback);
             if (WriteSettings(target.software, options->arm))
                 wprintf(L"  wrote HKLM\\%ls\n", SETTINGS_KEY);
+        } else if (!failures) {
+            Fail(L"cannot install into %ls", windir);
         }
     }
     CloseOfflineTarget(&target);
@@ -915,7 +959,7 @@ static int UninstallOffline(const wchar_t *windir)
     OFFLINE_TARGET target;
 
     wprintf(L"uninstalling from the offline windows at %ls\n", windir);
-    if (OpenOfflineTarget(windir, &target)) {
+    if (OpenOfflineTarget(windir, &target, FALSE)) {
         wprintf(L"  that windows calls itself %ls\n", target.online_windir);
         /* every control set, so last-known-good cannot bring the driver back either */
         for (index = 0;; ++index) {
@@ -946,10 +990,18 @@ static int UninstallOffline(const wchar_t *windir)
 
         if (JoinPath(path, ARRAYSIZE(path), windir, L"System32\\drivers\\" DRIVER_FILE))
             RemoveFileOrDefer(path, FALSE);
-        if (JoinPath(path, ARRAYSIZE(path), target.offline_pf, PRODUCT_DIR))
-            RemoveDirectoryTree(path, FALSE);
+        else
+            Fail(L"cannot resolve the driver path under %ls", windir);
+        if (target.offline_pf[0]) {
+            if (JoinPath(path, ARRAYSIZE(path), target.offline_pf, PRODUCT_DIR))
+                RemoveDirectoryTree(path, FALSE);
+            else
+                Fail(L"cannot resolve the service path under %ls", target.offline_pf);
+        }
         if (JoinPath(path, ARRAYSIZE(path), target.root, L"ProgramData\\" PRODUCT_DIR))
             RemoveDirectoryTree(path, FALSE);
+        else
+            Fail(L"cannot resolve the data path under %ls", target.root);
     }
     CloseOfflineTarget(&target);
     if (failures)
