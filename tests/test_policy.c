@@ -1,6 +1,45 @@
 #include "oom_policy.h"
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <winioctl.h>
+#endif
+
+#include "oom_protocol.h"
+
+#include <stddef.h>
 #include <stdio.h>
+
+/* The host build includes the real wire header; pin every field the driver,
+ * service, and bugcheck text depend on so a reorder cannot pass G2 with an
+ * unchanged total size. driver.c has the matching FIELD_OFFSET C_ASSERTs. */
+_Static_assert(sizeof(OOM_TELEMETRY) == 64, "OOM_TELEMETRY size changed");
+_Static_assert(offsetof(OOM_TELEMETRY, sequence) == 8, "OOM_TELEMETRY.sequence moved");
+_Static_assert(offsetof(OOM_TELEMETRY, service_pid) == 16, "OOM_TELEMETRY.service_pid moved");
+_Static_assert(offsetof(OOM_TELEMETRY, page_size) == 20, "OOM_TELEMETRY.page_size moved");
+_Static_assert(offsetof(OOM_TELEMETRY, backing_reason) == 24,
+               "OOM_TELEMETRY.backing_reason moved");
+_Static_assert(offsetof(OOM_TELEMETRY, reserved) == 28, "OOM_TELEMETRY.reserved moved");
+_Static_assert(offsetof(OOM_TELEMETRY, commit_charge_pages) == 32,
+               "OOM_TELEMETRY.commit_charge_pages moved");
+_Static_assert(offsetof(OOM_TELEMETRY, commit_limit_pages) == 40,
+               "OOM_TELEMETRY.commit_limit_pages moved");
+_Static_assert(offsetof(OOM_TELEMETRY, available_physical_pages) == 48,
+               "OOM_TELEMETRY.available_physical_pages moved");
+_Static_assert(offsetof(OOM_TELEMETRY, pagefile_free_pages) == 56,
+               "OOM_TELEMETRY.pagefile_free_pages moved");
+_Static_assert(sizeof(OOM_KILL_REQUEST) == 88, "OOM_KILL_REQUEST size changed");
+_Static_assert(offsetof(OOM_KILL_REQUEST, victim_pid) == 64, "OOM_KILL_REQUEST.victim_pid moved");
+_Static_assert(offsetof(OOM_KILL_REQUEST, reserved) == 68, "OOM_KILL_REQUEST.reserved moved");
+_Static_assert(offsetof(OOM_KILL_REQUEST, victim_private_pages) == 72,
+               "OOM_KILL_REQUEST.victim_private_pages moved");
+_Static_assert(offsetof(OOM_KILL_REQUEST, victim_create_time) == 80,
+               "OOM_KILL_REQUEST.victim_create_time moved");
+_Static_assert(sizeof(OOM_DRIVER_STATUS) == 32, "OOM_DRIVER_STATUS size changed");
+_Static_assert(offsetof(OOM_DRIVER_STATUS, last_sequence) == 16,
+               "OOM_DRIVER_STATUS.last_sequence moved");
+_Static_assert(offsetof(OOM_DRIVER_STATUS, owner_pid) == 24, "OOM_DRIVER_STATUS.owner_pid moved");
+_Static_assert(offsetof(OOM_DRIVER_STATUS, reserved) == 28, "OOM_DRIVER_STATUS.reserved moved");
 
 /* Not assert(): these checks must survive an NDEBUG build, and the policy
  * calls inside them have side effects that must run exactly once. */

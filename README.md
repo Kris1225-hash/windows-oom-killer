@@ -4,11 +4,11 @@ a small windows service and kmdf control driver that recover from commit exhaust
 
 the service uses documented win32 memory counters to detect low commit headroom. it picks the non-critical, non-protected, non-session-0 process with the largest private commit. the driver validates that request, rejects the system process, protected processes, and critical processes, checks the pid creation time against reuse, and calls `ZwTerminateProcess`.
 
-if a victim does not exit within five seconds, three recovery kills do not clear pressure, the monitor stops responding during critical pressure, or no safe victim exists, the driver calls `KeBugCheckEx`. the driver also watches windows' `\KernelObjects\MaximumCommitCondition`, so a crashed service cannot silently disable protection before pressure begins.
+if a victim does not exit within five seconds, three recovery kills do not clear pressure, the monitor stops responding during critical pressure, or no safe victim exists, the driver calls `KeBugCheckEx`. the driver also watches windows' `\KernelObjects\MaximumCommitCondition`, so a crashed service still escalates to a bugcheck once commit is exhausted (inside the headroom band, only the live service can act).
 
 after a successful recovery kill, the service displays a popup in the affected user's session with the process name, pid, reason, and private memory usage.
 
-after a custom OOM bugcheck and reboot, the service translates the latest Windows bugcheck event and displays the friendly reason and all four parameters once an interactive session is available. each crash is reported only once.
+after a custom OOM bugcheck and reboot, the service translates the latest Windows bugcheck event and displays the friendly reason and all four parameters in the active console session (an RDP-only logon does not get it) once one is available. each crash is reported at most once: `LastNotifiedBugcheckRecord` is best-effort, and a WER event written after the ten-minute boot window is reported on a later boot.
 
 the split is deliberate. windows exposes good supported memory and per-process commit APIs to user mode. putting undocumented memory-manager structures in the driver would make it version-fragile for no gain. the watchdog and final recovery path remain in the kernel.
 
@@ -63,6 +63,14 @@ cmake --build build
 ./build/oom_policy_test
 ```
 
+on windows the default (visual studio) generator is multi-config, so the binary lands one directory deeper:
+
+```powershell
+cmake -S . -B build
+cmake --build build --config Debug
+.\build\Debug\oom_policy_test.exe
+```
+
 ### manual bugcheck build
 
 the `BugcheckTest` configuration adds an admin-only manual crash ioctl and cli. debug and release builds do not contain it.
@@ -87,11 +95,11 @@ to verify all eight codes across automatic reboots:
 .\scripts\test-bugchecks.ps1 -Start
 ```
 
-the runner verifies each preceding System event before triggering the next code. it stops after eight successful crashes or immediately on a mismatch. results and logs are written under `C:\ProgramData\WinOomKiller`. cancel an active run with `test-bugchecks.ps1 -Cancel`.
+the runner verifies each preceding System event before triggering the next code. it stops after eight successful crashes or immediately on a mismatch. results and logs are written under `C:\ProgramData\WinOomKiller`. cancel an active run with `test-bugchecks.ps1 -Cancel`. `-Start` installs the `BugcheckTest` driver and service from the checkout (build that configuration first), sets the monitor to Manual, and leaves those binaries installed: reinstall a Debug or Release build when the sweep is done.
 
 ## install in a disposable vm
 
-the driver will need a test signature or windows test-signing mode during development. install disarmed first:
+the driver will need test-signing mode on the target vm during development: the build test-signs it, and windows refuses to load it without `bcdedit /set testsigning on` (and secure boot off). install disarmed first:
 
 ```powershell
 .\scripts\install.ps1 `
@@ -99,11 +107,11 @@ the driver will need a test signature or windows test-signing mode during develo
   -ServicePath .\service\x64\Debug\WinOomKillerService.exe
 ```
 
-verify the service and event log, then set `HKLM\SOFTWARE\WinOomKiller\Armed` to `1` (a `REG_DWORD`) and restart the service. passing `-Arm` to the installer does both during later test runs.
+verify the service and event log, then set `HKLM\SOFTWARE\WinOomKiller\Armed` to `1` (a `REG_DWORD`) and restart the service. passing `-Arm` to the installer does both during later test runs; every install rewrites the settings to their defaults, so re-check any values you tuned.
 
-use `-StageOnly` to register a disarmed install without loading it until the next reboot.
+use `-StageOnly` to register a disarmed install without loading it until the next reboot. on an existing install it stops the running monitor and driver first, so the machine is unmonitored and disarmed until that boot.
 
-defaults are 512 mib commit headroom and one critical sample. if pressure remains critical, it can kill up to three victims two samples apart before the driver watchdog gives up. the driver independently refuses recovery requests outside its hard 512 mib ceiling, so the service clamps `CommitHeadroomMiB` to it, clamps `ConfirmationSamples` and `KillRetrySamples` to 1–10, and logs every value it had to change. settings must be `REG_DWORD`: a value of any other type is ignored in favour of the default, so a mistyped `Armed` leaves the monitor disarmed.
+defaults are 512 mib commit headroom and one critical sample. if pressure remains critical, it can kill up to three victims two samples apart before the service asks the driver to bugcheck; the watchdog separately covers a monitor that stops heartbeating or a kill that never finishes. the driver independently refuses recovery requests outside its hard 512 mib ceiling, so the service clamps `CommitHeadroomMiB` to it, clamps `ConfirmationSamples` and `KillRetrySamples` to 1–10, accepts `MaxKills` only in 1–10 (anything else falls back to 3), and logs every value it had to change. settings must be `REG_DWORD`: a value of any other type is ignored in favour of the default, so a mistyped `Armed` leaves the monitor disarmed.
 
 `scripts/memory-hog.ps1 -MemoryMiB 1024` supplies a bounded test victim. do not pressure-test a machine containing anything you care about.
 

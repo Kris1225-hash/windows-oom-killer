@@ -26,7 +26,21 @@ static ULONGLONG OomNow(void)
 }
 
 C_ASSERT(sizeof(OOM_TELEMETRY) == 64);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, sequence) == 8);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, service_pid) == 16);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, page_size) == 20);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, backing_reason) == 24);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, commit_charge_pages) == 32);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, commit_limit_pages) == 40);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, available_physical_pages) == 48);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, pagefile_free_pages) == 56);
 C_ASSERT(sizeof(OOM_KILL_REQUEST) == 88);
+C_ASSERT(FIELD_OFFSET(OOM_KILL_REQUEST, victim_pid) == 64);
+C_ASSERT(FIELD_OFFSET(OOM_KILL_REQUEST, victim_private_pages) == 72);
+C_ASSERT(FIELD_OFFSET(OOM_KILL_REQUEST, victim_create_time) == 80);
+C_ASSERT(sizeof(OOM_DRIVER_STATUS) == 32);
+C_ASSERT(FIELD_OFFSET(OOM_DRIVER_STATUS, last_sequence) == 16);
+C_ASSERT(FIELD_OFFSET(OOM_DRIVER_STATUS, owner_pid) == 24);
 
 typedef struct DEVICE_CONTEXT {
     WDFSPINLOCK lock;
@@ -196,6 +210,13 @@ static NTSTATUS OomTerminateVictim(WDFREQUEST request, DEVICE_CONTEXT *ctx,
 
     status = ZwTerminateProcess(process_handle, STATUS_NO_MEMORY);
     if (NT_SUCCESS(status) || status == STATUS_PROCESS_IS_TERMINATING) {
+        /* The 5 s victim-exit wait starts now, so restart the watchdog's backstop
+         * here: a slow ZwTerminateProcess must not eat the wait's budget. The
+         * original deadline still covers a call that never returns. */
+        WdfSpinLockAcquire(ctx->lock);
+        if (ctx->kill_pending)
+            ctx->kill_deadline = OomNow() + OOM_KILL_WATCHDOG_100NS;
+        WdfSpinLockRelease(ctx->lock);
         timeout.QuadPart = -(LONGLONG)OOM_KILL_WAIT_100NS;
         status = ZwWaitForSingleObject(process_handle, FALSE, &timeout);
     }
@@ -349,17 +370,21 @@ VOID OomEvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t output_len
                                                &buffer, &length);
         if (NT_SUCCESS(status)) {
             const OOM_BUGCHECK_REQUEST *test = buffer;
+            OOM_BUGCHECK_REQUEST copy;
+
             if (test->confirm != OOM_TEST_CONFIRM ||
                 test->code < OOM_FATAL_NO_BACKING_STORE ||
                 test->code > OOM_FATAL_MONITOR_UNRESPONSIVE) {
                 status = STATUS_INVALID_PARAMETER;
                 break;
             }
+            /* the METHOD_BUFFERED input is only valid until the request is
+             * completed, so take the values the bugcheck needs first */
+            copy = *test;
             WdfRequestComplete(request, STATUS_SUCCESS);
-            KeBugCheckEx(test->code, (ULONG_PTR)test->parameters[0],
-                         (ULONG_PTR)test->parameters[1],
-                         (ULONG_PTR)test->parameters[2],
-                         (ULONG_PTR)test->parameters[3]);
+            KeBugCheckEx(copy.code, (ULONG_PTR)copy.parameters[0],
+                         (ULONG_PTR)copy.parameters[1], (ULONG_PTR)copy.parameters[2],
+                         (ULONG_PTR)copy.parameters[3]);
             return;
         }
         break;

@@ -124,12 +124,6 @@ static BOOL FileExists(const wchar_t *path)
     return attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY);
 }
 
-static BOOL DirectoryExists(const wchar_t *path)
-{
-    DWORD attributes = GetFileAttributesW(path);
-    return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY);
-}
-
 static BOOL IsRecoveryEnvironment(void)
 {
     HKEY key;
@@ -223,9 +217,25 @@ static void RemoveDirectoryTree(const wchar_t *path, BOOL can_defer)
 {
     wchar_t pattern[MAX_PATH], child[MAX_PATH];
     WIN32_FIND_DATAW entry;
+    DWORD attributes = GetFileAttributesW(path);
     HANDLE find;
 
-    if (!DirectoryExists(path) || !JoinPath(pattern, ARRAYSIZE(pattern), path, L"*"))
+    if (attributes == INVALID_FILE_ATTRIBUTES || !(attributes & FILE_ATTRIBUTE_DIRECTORY))
+        return;
+    if (attributes & FILE_ATTRIBUTE_REPARSE_POINT) {
+        /* A junction or directory symlink planted at a user-writable path (for
+         * example %ProgramData%\WinOomKiller, which standard users can create)
+         * must be removed as a link, never recursed through: the target could be
+         * any directory on the machine. */
+        if (RemoveDirectoryW(path))
+            wprintf(L"  removed %ls\n", path);
+        else if (can_defer && MoveFileExW(path, NULL, MOVEFILE_DELAY_UNTIL_REBOOT))
+            wprintf(L"  %ls will be removed at the next boot\n", path);
+        else
+            Fail(L"cannot remove %ls: win32 error %lu", path, GetLastError());
+        return;
+    }
+    if (!JoinPath(pattern, ARRAYSIZE(pattern), path, L"*"))
         return;
     find = FindFirstFileW(pattern, &entry);
     if (find != INVALID_HANDLE_VALUE) {

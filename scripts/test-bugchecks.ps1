@@ -6,12 +6,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $taskName = 'WinOomKillerBugcheckTests'
+$programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+$installDir = Join-Path $programFiles 'WinOomKiller'
 $dataDir = Join-Path $env:ProgramData 'WinOomKiller'
 $statePath = Join-Path $dataDir 'bugcheck-test-state.json'
 $resultPath = Join-Path $dataDir 'bugcheck-test-results.json'
 $logPath = Join-Path $dataDir 'bugcheck-test.log'
-$runnerPath = Join-Path $dataDir 'test-bugchecks.ps1'
-$testExe = Join-Path $env:ProgramFiles 'WinOomKiller\WinOomKillerService.exe'
+# the SYSTEM startup task runs this copy from the admin-owned install dir, not
+# from ProgramData, whose subdirectories a standard user can create and rewrite
+$runnerPath = Join-Path $installDir 'test-bugchecks.ps1'
+$testExe = Join-Path $installDir 'WinOomKillerService.exe'
 $codes = 1..8 | ForEach-Object { '0xE0F000{0:X2}' -f $_ }
 $utf8 = [Text.UTF8Encoding]::new($false)
 
