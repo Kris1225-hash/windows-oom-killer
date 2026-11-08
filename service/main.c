@@ -602,23 +602,27 @@ static DWORD RunMonitor(void)
     }
 
     if (device != INVALID_HANDLE_VALUE) {
-        /* A clean stop must always disarm: if the loop ended on a driver error, or the
-         * final sample failed, the watchdog would otherwise stay armed with stale
-         * critical telemetry and bugcheck the machine after the service is gone. */
-        OOM_TELEMETRY disarm;
-        BOOL have_sample = CollectTelemetry(&disarm, ++sequence, &thresholds, FALSE);
+        /* Only a requested stop disarms (result is still ERROR_SUCCESS). A loop that
+         * ended on a heartbeat failure means the monitor itself is failing, so the
+         * driver stays armed and its watchdog can still fail closed. A requested
+         * stop must disarm even when the final sample fails, or the watchdog would
+         * bugcheck on stale critical telemetry after the service is gone, so it
+         * falls back to a minimal valid sample. */
+        if (result == ERROR_SUCCESS) {
+            OOM_TELEMETRY disarm;
 
-        if (!have_sample) {
-            ZeroMemory(&disarm, sizeof(disarm));
-            disarm.version = OOM_PROTOCOL_VERSION;
-            disarm.sequence = sequence;
-            disarm.service_pid = GetCurrentProcessId();
-            disarm.page_size = system_info.dwPageSize;
-            disarm.commit_limit_pages = 1;
+            if (!CollectTelemetry(&disarm, ++sequence, &thresholds, FALSE)) {
+                ZeroMemory(&disarm, sizeof(disarm));
+                disarm.version = OOM_PROTOCOL_VERSION;
+                disarm.sequence = sequence;
+                disarm.service_pid = GetCurrentProcessId();
+                disarm.page_size = system_info.dwPageSize;
+                disarm.commit_limit_pages = 1;
+            }
+            if (!SendIoctl(device, IOCTL_OOM_HEARTBEAT, &disarm, sizeof(disarm)))
+                LogMessage(EVENTLOG_ERROR_TYPE, L"could not disarm the driver: win32 error %lu",
+                           GetLastError());
         }
-        if (!SendIoctl(device, IOCTL_OOM_HEARTBEAT, &disarm, sizeof(disarm)))
-            LogMessage(EVENTLOG_ERROR_TYPE, L"could not disarm the driver: win32 error %lu",
-                       GetLastError());
         CloseHandle(device);
     }
 

@@ -364,11 +364,20 @@ static BOOL StopServiceAndWait(SC_HANDLE scm, const wchar_t *name)
         return GetLastError() == ERROR_SERVICE_DOES_NOT_EXIST;
     if (!ControlService(service, SERVICE_CONTROL_STOP, &status)) {
         DWORD error = GetLastError();
-        CloseServiceHandle(service);
-        if (error == ERROR_SERVICE_NOT_ACTIVE)
-            return TRUE;
-        Warn(L"cannot stop %ls: win32 error %lu", name, error);
-        return FALSE;
+        /* a service that is already stopping refuses new controls (1061): wait for
+         * it like one this call stopped, instead of reporting it as stuck */
+        BOOL stopping = error == ERROR_SERVICE_CANNOT_ACCEPT_CTRL &&
+                        QueryServiceStatus(service, &status) &&
+                        (status.dwCurrentState == SERVICE_STOP_PENDING ||
+                         status.dwCurrentState == SERVICE_STOPPED);
+
+        if (!stopping) {
+            CloseServiceHandle(service);
+            if (error == ERROR_SERVICE_NOT_ACTIVE)
+                return TRUE;
+            Warn(L"cannot stop %ls: win32 error %lu", name, error);
+            return FALSE;
+        }
     }
     while (QueryServiceStatus(service, &status) && status.dwCurrentState != SERVICE_STOPPED &&
            waited < STOP_TIMEOUT_MS) {
@@ -874,12 +883,15 @@ static BOOL WriteOfflineServices(OFFLINE_TARGET *target, DWORD control_set)
          SetSz(service, L"ObjectName", REG_SZ, L"LocalSystem") &&
          SetString(service, L"DependOnService", REG_MULTI_SZ, dependencies,
                    ARRAYSIZE(dependencies));
-    if (ok && RegSetValueExW(service, L"FailureActions", 0, REG_BINARY,
-                             (const BYTE *)failure_actions,
-                             (DWORD)sizeof(failure_actions)) != ERROR_SUCCESS) {
-        Fail(L"cannot write FailureActions in ControlSet%03lu: win32 error %ld", control_set,
-             GetLastError());
-        ok = FALSE;
+    if (ok) {
+        /* registry calls return their error; they do not set the last error */
+        status = RegSetValueExW(service, L"FailureActions", 0, REG_BINARY,
+                                (const BYTE *)failure_actions, (DWORD)sizeof(failure_actions));
+        if (status != ERROR_SUCCESS) {
+            Fail(L"cannot write FailureActions in ControlSet%03lu: win32 error %ld", control_set,
+                 status);
+            ok = FALSE;
+        }
     }
     if (ok)
         ok = SetDword(service, L"FailureActionsOnNonCrashFailures", 1);

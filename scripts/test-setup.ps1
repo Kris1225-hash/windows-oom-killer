@@ -99,16 +99,24 @@ foreach ($name in $monitorValues) { $reference["WinOomKiller\$name"] = Get-RegVa
 foreach ($name in $driverValues) { $reference["WinOomKillerDriver\$name"] = Get-RegValue "$services\WinOomKillerDriver" $name }
 Check ($reference['WinOomKiller\FailureActions'] -like 'REG_BINARY 3C00000000000000000000000300000014000000*') 'scm recorded the failure actions'
 
-Invoke-Setup 0 'install', '--stage-only', '--arm'
+# the arming install sits inside the try, so a failure anywhere from there on
+# still uninstalls. on success the flag skips that silent uninstall: the checked
+# uninstall below has to run against the real install so its exit code counts
+$needsCleanup = $true
 try {
+    Invoke-Setup 0 'install', '--stage-only', '--arm'
     Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x1') 'reinstall over existing services with --arm'
     Invoke-Setup 0 'install', '--stage-only'
     Check ((Get-RegValue 'HKLM\SOFTWARE\WinOomKiller' 'Armed') -eq 'REG_DWORD 0x0') 'reinstall without --arm disarms'
+    $needsCleanup = $false
 } finally {
-    # a failure between arming and the uninstall below must not leave this machine armed
-    $ErrorActionPreference = 'Continue'
-    & $setup uninstall *> $null
-    $ErrorActionPreference = 'Stop'
+    # a failure (or ctrl+c) between arming and the uninstall below must not leave
+    # this machine armed
+    if ($needsCleanup) {
+        $ErrorActionPreference = 'Continue'
+        & $setup uninstall *> $null
+        $ErrorActionPreference = 'Stop'
+    }
 }
 
 Invoke-Setup 0 'uninstall'
