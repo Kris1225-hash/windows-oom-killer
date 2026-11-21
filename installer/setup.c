@@ -302,7 +302,8 @@ static BOOL WriteSettings(HKEY hklm_software, BOOL arm)
          SetDword(key, L"CommitHeadroomMiB", 512) &&
          SetDword(key, L"ConfirmationSamples", 1) &&
          SetDword(key, L"KillRetrySamples", 2) &&
-         SetDword(key, L"MaxKills", 3);
+         SetDword(key, L"MaxKills", 3) &&
+         SetDword(key, L"KillSession0Processes", 0);
     RegCloseKey(key);
     return ok;
 }

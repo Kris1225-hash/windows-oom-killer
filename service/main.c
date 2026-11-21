@@ -359,7 +359,8 @@ static BOOL WasRefused(const REFUSED_VICTIMS *refused, uint32_t pid, uint64_t cr
     return FALSE;
 }
 
-static VICTIM_RESULT FindVictim(uint32_t page_size, const REFUSED_VICTIMS *refused,
+static VICTIM_RESULT FindVictim(uint32_t page_size, BOOL allow_session0,
+                                const REFUSED_VICTIMS *refused,
                                 uint32_t *victim_pid, uint64_t *private_pages,
                                 uint64_t *create_time, DWORD *victim_session,
                                 wchar_t *victim_name, size_t victim_name_count)
@@ -387,8 +388,12 @@ static VICTIM_RESULT FindVictim(uint32_t page_size, const REFUSED_VICTIMS *refus
         DWORD session;
         BOOL critical;
 
+        /* session 0 hosts services: offered only when the operator opted in
+         * with KillSession0Processes; the driver still refuses system,
+         * protected, and critical processes there. */
         if (entry.th32ProcessID <= 4 || entry.th32ProcessID == self ||
-            !ProcessIdToSessionId(entry.th32ProcessID, &session) || session == 0)
+            !ProcessIdToSessionId(entry.th32ProcessID, &session) ||
+            (session == 0 && !allow_session0))
             continue;
         process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
         if (!process)
@@ -433,6 +438,14 @@ static void NotifyKilledProcess(DWORD session, const wchar_t *name, DWORD pid,
                  L"%ls (PID %lu) was terminated because Windows was almost out of "
                  L"committed memory. It was using %llu MiB of private memory.",
                  name, pid, private_pages * page_size / MIB);
+    /* a session-0 victim has no interactive desktop: report to the active
+     * console session instead of a popup no one could see. */
+    if (session == 0)
+        session = WTSGetActiveConsoleSessionId();
+    if (session == 0xFFFFFFFF) {
+        LogMessage(EVENTLOG_WARNING_TYPE, L"no interactive session to notify about pid %lu", pid);
+        return;
+    }
     if (!WTSSendMessageW(WTS_CURRENT_SERVER_HANDLE, session, title,
                          (DWORD)(wcslen(title) * sizeof(*title)), message,
                          (DWORD)(wcslen(message) * sizeof(*message)),
@@ -451,9 +464,9 @@ static DWORD RunMonitor(void)
     REFUSED_VICTIMS refused = {0};
     uint64_t sequence = 0;
     DWORD result = ERROR_SUCCESS;
-    DWORD kill_failures = 0, enum_failures = 0, armed_setting, headroom_mib;
+    DWORD kill_failures = 0, enum_failures = 0, armed_setting, headroom_mib, session0_setting;
     ULONGLONG next_telemetry_error = 0;
-    BOOL armed;
+    BOOL armed, allow_session0;
 
     event_source = RegisterEventSourceW(NULL, SERVICE_NAME);
 
@@ -463,6 +476,14 @@ static DWORD RunMonitor(void)
     if (armed_setting > 1)
         LogMessage(EVENTLOG_WARNING_TYPE, L"Armed=%lu is neither 0 nor 1; staying disarmed",
                    armed_setting);
+
+    /* session-0 victims stay refused unless the operator opts in; the driver's
+     * system/protected/critical refusals apply to them unchanged. */
+    session0_setting = ReadSetting(L"KillSession0Processes", 0);
+    allow_session0 = session0_setting == 1;
+    if (session0_setting > 1)
+        LogMessage(EVENTLOG_WARNING_TYPE,
+                   L"KillSession0Processes=%lu is neither 0 nor 1; using 0", session0_setting);
 
     /* the driver refuses anything its own ceiling does not justify, so a larger
      * headroom would only produce refused kills */
@@ -483,10 +504,11 @@ static DWORD RunMonitor(void)
 
     LogMessage(EVENTLOG_INFORMATION_TYPE,
                L"monitor started %ls: commit headroom %llu pages (%lu MiB), "
-               L"%lu confirmation sample(s), %lu retry sample(s), at most %lu kill(s)",
+               L"%lu confirmation sample(s), %lu retry sample(s), at most %lu kill(s), "
+               L"session-0 victims %ls",
                armed ? L"armed" : L"disarmed", thresholds.min_commit_headroom, headroom_mib,
                thresholds.confirmation_samples, thresholds.kill_retry_samples,
-               thresholds.max_kills);
+               thresholds.max_kills, allow_session0 ? L"allowed" : L"refused");
 
     notifier = CreateThread(NULL, 0, CrashNotifier, NULL, 0, NULL);
     if (!notifier)
@@ -545,7 +567,7 @@ static DWORD RunMonitor(void)
             VICTIM_RESULT victim;
 
             kill.telemetry = telemetry;
-            victim = FindVictim(telemetry.page_size, &refused, &kill.victim_pid,
+            victim = FindVictim(telemetry.page_size, allow_session0, &refused, &kill.victim_pid,
                                 &kill.victim_private_pages, &kill.victim_create_time,
                                 &victim_session, victim_name, ARRAYSIZE(victim_name));
             if (victim == VICTIM_ENUM_FAILED) {

@@ -107,4 +107,10 @@ assert "if (status == ERROR_SUCCESS)\n        return TRUE;" in service
 assert "ProcessProtectionLevelInfo" in service and "IsProcessCritical(process, &critical)" in service
 # offline uninstall must not stop early on a long SYSTEM-hive key name
 assert "wchar_t name[256]" in installer and "status == ERROR_MORE_DATA" in installer
+# session-0 victims are refused unless the operator opts in (issue #1), and a
+# session-0 kill's popup must be redirected to an interactive session
+assert "(session == 0 && !allow_session0)" in service
+assert 'ReadSetting(L"KillSession0Processes", 0)' in service
+assert "session = WTSGetActiveConsoleSessionId()" in service
+assert 'SetDword(key, L"KillSession0Processes", 0)' in installer
 print("driver contract verification passed")

@@ -67,6 +67,7 @@ $driverValues = 'Type', 'Start', 'ErrorControl'
 $settings = [ordered]@{
     CommitHeadroomMiB = 'REG_DWORD 0x200'; ConfirmationSamples = 'REG_DWORD 0x1'
     KillRetrySamples = 'REG_DWORD 0x2'; MaxKills = 'REG_DWORD 0x3'
+    KillSession0Processes = 'REG_DWORD 0x0'
 }
 
 Write-Host '== cli'
