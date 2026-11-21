@@ -107,4 +107,8 @@ assert "if (status == ERROR_SUCCESS)\n        return TRUE;" in service
 assert "ProcessProtectionLevelInfo" in service and "IsProcessCritical(process, &critical)" in service
 # offline uninstall must not stop early on a long SYSTEM-hive key name
 assert "wchar_t name[256]" in installer and "status == ERROR_MORE_DATA" in installer
+# a slow telemetry sample must be visible in the event log before it can
+# cause a watchdog bugcheck (issue #2)
+assert "SLOW_SAMPLE_MS" in service
+assert "sample_ms >= SLOW_SAMPLE_MS" in service
 print("driver contract verification passed")
