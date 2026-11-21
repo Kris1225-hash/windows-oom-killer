@@ -31,7 +31,7 @@ to `%ProgramFiles%\WinOomKiller\`; registers the driver as demand-start
 kernel service and the monitor as auto-start service depending on it;
 writes the default settings under `HKLM\SOFTWARE\WinOomKiller`
 (`Armed=0`, `CommitHeadroomMiB=512`, `ConfirmationSamples=1`,
-`KillRetrySamples=2`, `MaxKills=3`); configures service recovery
+`KillRetrySamples=2`, `MaxKills=3`, `KillSession0Processes=0`); configures service recovery
 (restart at 2s/5s/10s); then starts both unless `-StageOnly` was
 passed (`-StageOnly` registers everything but loads nothing until the
 next reboot).
@@ -107,8 +107,9 @@ driver's `STATUS_NO_MEMORY` termination code (check the
 process, pid, reason, and private usage, the `WinOomKiller` event source
 logs the kill, and commit headroom recovers without a reboot. if nothing
 dies: check `Armed`, pagefile size vs. `CommitHeadroomMiB`, and that a
-candidate is not session 0, protected/critical, or under the driver's
-64 MiB victim floor.
+candidate is not session 0 (unless `KillSession0Processes=1`; a session-0
+kill's popup is redirected to the active console session), not
+protected/critical, and not under the driver's 64 MiB victim floor.
 
 tuning: registry thresholds may be lowered freely. the driver's
 compiled ceilings (`OOM_COMMIT_HEADROOM_BYTES`, `OOM_MIN_VICTIM_BYTES`
