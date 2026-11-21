@@ -19,6 +19,9 @@
 #define MIB (1024ull * 1024)
 #define MAX_SAMPLE_SETTING 10u
 #define MAX_RECOVERY_FAILURES 3u
+/* A telemetry sample slower than this spends a visible part of the driver's
+ * 5 s watchdog budget: log it before it can become a mystery bugcheck. */
+#define SLOW_SAMPLE_MS 250ull
 /* WER writes the crash event a while after boot, often after this service starts. */
 #define CRASH_EVENT_WINDOW_MS (10ull * 60 * 1000)
 #define CRASH_RETRY_MS 10000u
@@ -295,6 +298,9 @@ static BOOL CALLBACK CountPagefile(void *context, PENUM_PAGE_FILE_INFORMATION in
     return TRUE;
 }
 
+/* GetPerformanceInfo walks every process on the machine and can be slow on a
+ * loaded one; the 1 s loop and the driver's 5 s watchdog tolerate a slow
+ * sample, and RunMonitor logs a warning when one crosses SLOW_SAMPLE_MS. */
 static BOOL CollectTelemetry(OOM_TELEMETRY *telemetry, uint64_t sequence,
                              const OOM_THRESHOLDS *thresholds, BOOL armed)
 {
@@ -452,7 +458,7 @@ static DWORD RunMonitor(void)
     uint64_t sequence = 0;
     DWORD result = ERROR_SUCCESS;
     DWORD kill_failures = 0, enum_failures = 0, armed_setting, headroom_mib;
-    ULONGLONG next_telemetry_error = 0;
+    ULONGLONG next_telemetry_error = 0, next_slow_sample_warn = 0;
     BOOL armed;
 
     event_source = RegisterEventSourceW(NULL, SERVICE_NAME);
@@ -506,11 +512,26 @@ static DWORD RunMonitor(void)
         OOM_SAMPLE sample;
         OOM_ACTION action;
 
-        if (!CollectTelemetry(&telemetry, ++sequence, &thresholds, armed)) {
-            DWORD error = GetLastError();
+        ULONGLONG sample_start = GetTickCount64();
+        BOOL sampled = CollectTelemetry(&telemetry, ++sequence, &thresholds, armed);
+        /* the last error is captured before any logging: a ReportEvent rpc
+         * can change it. */
+        DWORD telemetry_error = GetLastError();
+        ULONGLONG sample_ms = GetTickCount64() - sample_start;
+        /* a slow sample spends the watchdog's 5 s heartbeat budget: make it
+         * visible in the event log instead of leaving a later
+         * OOM_FATAL_MONITOR_UNRESPONSIVE a mystery. */
+        if (armed && sample_ms >= SLOW_SAMPLE_MS && GetTickCount64() >= next_slow_sample_warn) {
+            LogMessage(EVENTLOG_WARNING_TYPE,
+                       L"memory telemetry sample took %llu ms; slow samples spend the "
+                       L"watchdog's heartbeat budget",
+                       sample_ms);
+            next_slow_sample_warn = GetTickCount64() + ERROR_LOG_INTERVAL_MS;
+        }
+        if (!sampled) {
             if (GetTickCount64() >= next_telemetry_error) {
                 LogMessage(EVENTLOG_ERROR_TYPE, L"memory telemetry failed: win32 error %lu",
-                           error);
+                           telemetry_error);
                 next_telemetry_error = GetTickCount64() + ERROR_LOG_INTERVAL_MS;
             }
             if (WaitForSingleObject(stop_event, 1000) != WAIT_TIMEOUT)
