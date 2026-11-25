@@ -22,9 +22,12 @@ typedef struct OOM_THRESHOLDS {
     OOM_U32 max_kills;
 } OOM_THRESHOLDS;
 
+/* commit_growth is how many pages the commit limit can still grow by before
+ * the pagefiles reach their maximum size (0 for fixed-size pagefiles). */
 typedef struct OOM_SAMPLE {
     OOM_U64 commit_charge;
     OOM_U64 commit_limit;
+    OOM_U64 commit_growth;
 } OOM_SAMPLE;
 
 typedef struct OOM_POLICY_STATE {
@@ -34,6 +37,7 @@ typedef struct OOM_POLICY_STATE {
     int kill_pending;
 } OOM_POLICY_STATE;
 
+OOM_U64 OomCommitHeadroom(const OOM_SAMPLE *sample);
 int OomSampleIsCritical(const OOM_THRESHOLDS *thresholds, const OOM_SAMPLE *sample);
 OOM_ACTION OomPolicyObserve(OOM_POLICY_STATE *state, const OOM_THRESHOLDS *thresholds,
                             const OOM_SAMPLE *sample);

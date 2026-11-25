@@ -1,11 +1,21 @@
 #include "oom_policy.h"
 
+/* Commit the system can still grant: up to the current limit, plus what the
+ * pagefiles can still grow by. A system-managed pagefile keeps the current
+ * limit only a few hundred MiB above the charge and grows on demand, so the
+ * current limit alone is not exhaustion. */
+OOM_U64 OomCommitHeadroom(const OOM_SAMPLE *sample)
+{
+    OOM_U64 maximum = sample->commit_limit + sample->commit_growth;
+
+    if (maximum < sample->commit_limit) /* saturate instead of wrapping */
+        maximum = ~(OOM_U64)0;
+    return sample->commit_charge < maximum ? maximum - sample->commit_charge : 0;
+}
+
 int OomSampleIsCritical(const OOM_THRESHOLDS *thresholds, const OOM_SAMPLE *sample)
 {
-    OOM_U64 headroom = sample->commit_charge < sample->commit_limit
-                            ? sample->commit_limit - sample->commit_charge
-                            : 0;
-    return headroom <= thresholds->min_commit_headroom;
+    return OomCommitHeadroom(sample) <= thresholds->min_commit_headroom;
 }
 
 OOM_ACTION OomPolicyObserve(OOM_POLICY_STATE *state, const OOM_THRESHOLDS *thresholds,

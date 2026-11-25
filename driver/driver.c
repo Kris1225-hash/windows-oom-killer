@@ -30,6 +30,7 @@ C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, sequence) == 8);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, service_pid) == 16);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, page_size) == 20);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, backing_reason) == 24);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, pagefile_growth_pages) == 28);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, commit_charge_pages) == 32);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, commit_limit_pages) == 40);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, available_physical_pages) == 48);
@@ -71,16 +72,7 @@ static BOOLEAN OomTelemetryValid(const OOM_TELEMETRY *t)
            t->sequence && t->service_pid > 4 && t->page_size >= 4096 &&
            t->page_size <= 65536 &&
            !(t->page_size & (t->page_size - 1)) && t->commit_limit_pages &&
-           t->backing_reason <= OOM_BACKING_KILL_REJECTED && !t->reserved;
-}
-
-static BOOLEAN OomTelemetryCritical(const OOM_TELEMETRY *t)
-{
-    ULONGLONG headroom = t->commit_charge_pages < t->commit_limit_pages
-                             ? t->commit_limit_pages - t->commit_charge_pages
-                             : 0;
-    return (t->flags & OOM_FLAG_CRITICAL) &&
-           headroom <= OOM_COMMIT_HEADROOM_BYTES / t->page_size;
+           t->backing_reason <= OOM_BACKING_KILL_REJECTED;
 }
 
 static ULONG_PTR OomBackingParameter(const OOM_TELEMETRY *t)
@@ -112,6 +104,22 @@ static ULONG OomBugcheckForBackingReason(ULONG reason)
 static BOOLEAN OomMaximumCommitReached(const DEVICE_CONTEXT *ctx)
 {
     return ctx->maximum_commit_event && KeReadStateEvent(ctx->maximum_commit_event) != 0;
+}
+
+/* Headroom counts what the pagefiles can still grow by, exactly as the
+ * service's policy does: near the current limit of a growable pagefile is
+ * not exhaustion, and a kill or bugcheck there is premature. Once windows
+ * signals MaximumCommitCondition, the pagefiles cannot grow any further, so
+ * the reported room is ignored even if the service measured it earlier. */
+static BOOLEAN OomTelemetryCritical(const DEVICE_CONTEXT *ctx, const OOM_TELEMETRY *t)
+{
+    OOM_SAMPLE sample;
+
+    sample.commit_charge = t->commit_charge_pages;
+    sample.commit_limit = t->commit_limit_pages;
+    sample.commit_growth = OomMaximumCommitReached(ctx) ? 0 : t->pagefile_growth_pages;
+    return (t->flags & OOM_FLAG_CRITICAL) &&
+           OomCommitHeadroom(&sample) <= OOM_COMMIT_HEADROOM_BYTES / t->page_size;
 }
 
 __declspec(noreturn) static VOID OomBugcheck(ULONG code, const OOM_TELEMETRY *t)
@@ -149,7 +157,7 @@ static NTSTATUS OomSaveTelemetry(WDFREQUEST request, DEVICE_CONTEXT *ctx,
     ctx->telemetry = *telemetry;
     ctx->armed = !!(telemetry->flags & OOM_FLAG_ARMED);
     ctx->last_heartbeat = now;
-    if (!ctx->armed || !OomTelemetryCritical(telemetry))
+    if (!ctx->armed || !OomTelemetryCritical(ctx, telemetry))
         ctx->kill_pending = FALSE;
     WdfSpinLockRelease(ctx->lock);
     return STATUS_SUCCESS;
@@ -169,7 +177,7 @@ static NTSTATUS OomTerminateVictim(WDFREQUEST request, DEVICE_CONTEXT *ctx,
     if (!NT_SUCCESS(status))
         return status;
     if (!(kill->telemetry.flags & OOM_FLAG_ARMED) ||
-        !OomTelemetryCritical(&kill->telemetry) || kill->victim_pid <= 4 ||
+        !OomTelemetryCritical(ctx, &kill->telemetry) || kill->victim_pid <= 4 ||
         kill->victim_pid == kill->telemetry.service_pid ||
         kill->reserved || !kill->victim_create_time ||
         kill->victim_private_pages < OOM_MIN_VICTIM_BYTES / kill->telemetry.page_size)
@@ -259,7 +267,7 @@ VOID OomEvtWatchdog(WDFTIMER timer)
     WdfSpinLockAcquire(ctx->lock);
     telemetry = ctx->telemetry;
     action = OomWatchdogObserve(ctx->armed,
-                               OomTelemetryCritical(&telemetry) || maximum_commit,
+                               OomTelemetryCritical(ctx, &telemetry) || maximum_commit,
                                ctx->kill_pending, now, ctx->last_heartbeat,
                                ctx->kill_deadline, OOM_HEARTBEAT_TIMEOUT_100NS);
     WdfSpinLockRelease(ctx->lock);
@@ -338,7 +346,7 @@ VOID OomEvtIoDeviceControl(WDFQUEUE queue, WDFREQUEST request, size_t output_len
             OOM_TELEMETRY telemetry = *(const OOM_TELEMETRY *)buffer;
             status = OomSaveTelemetry(request, ctx, &telemetry, TRUE);
             if (NT_SUCCESS(status) && (telemetry.flags & OOM_FLAG_ARMED) &&
-                OomTelemetryCritical(&telemetry)) {
+                OomTelemetryCritical(ctx, &telemetry)) {
                 if (OomMaximumCommitReached(ctx))
                     telemetry.backing_reason = OOM_BACKING_PAGEFILE_GROWTH_FAILED;
                 WdfRequestComplete(request, STATUS_SUCCESS);
