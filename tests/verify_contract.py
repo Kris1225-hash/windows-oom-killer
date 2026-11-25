@@ -19,7 +19,7 @@ class Telemetry(ctypes.Structure):
         ("version", ctypes.c_uint32), ("flags", ctypes.c_uint32),
         ("sequence", ctypes.c_uint64), ("service_pid", ctypes.c_uint32),
         ("page_size", ctypes.c_uint32), ("backing_reason", ctypes.c_uint32),
-        ("reserved", ctypes.c_uint32), ("commit_charge_pages", ctypes.c_uint64),
+        ("pagefile_growth_pages", ctypes.c_uint32), ("commit_charge_pages", ctypes.c_uint64),
         ("commit_limit_pages", ctypes.c_uint64),
         ("available_physical_pages", ctypes.c_uint64),
         ("pagefile_free_pages", ctypes.c_uint64),
@@ -36,7 +36,7 @@ assert ctypes.sizeof(Telemetry) == 64
 assert ctypes.sizeof(KillRequest) == 88
 for name, offset in (
     ("sequence", 8), ("service_pid", 16), ("page_size", 20), ("backing_reason", 24),
-    ("commit_charge_pages", 32), ("commit_limit_pages", 40),
+    ("pagefile_growth_pages", 28), ("commit_charge_pages", 32), ("commit_limit_pages", 40),
     ("available_physical_pages", 48), ("pagefile_free_pages", 56),
 ):
     assert getattr(Telemetry, name).offset == offset, name
@@ -49,7 +49,7 @@ for name, offset in (
 # _Static_assert(offsetof(...)) in the portable policy test that includes it
 policy_test = (root / "tests/test_policy.c").read_text()
 for field in ("sequence", "service_pid", "page_size", "backing_reason",
-              "commit_charge_pages", "commit_limit_pages",
+              "pagefile_growth_pages", "commit_charge_pages", "commit_limit_pages",
               "available_physical_pages", "pagefile_free_pages"):
     assert f"FIELD_OFFSET(OOM_TELEMETRY, {field})" in driver, field
     assert f"offsetof(OOM_TELEMETRY, {field}) == " in policy_test, field
@@ -111,4 +111,13 @@ assert "wchar_t name[256]" in installer and "status == ERROR_MORE_DATA" in insta
 # cause a watchdog bugcheck (issue #2)
 assert "SLOW_SAMPLE_MS" in service
 assert "sample_ms >= SLOW_SAMPLE_MS" in service
+# headroom counts what the pagefiles can still grow by, on both sides, through
+# the one shared formula: a system-managed pagefile near its current limit is
+# not commit exhaustion
+assert "#define OOM_PROTOCOL_VERSION 2u" in header
+assert "OomCommitHeadroom(&sample) <= OOM_COMMIT_HEADROOM_BYTES / t->page_size" in driver
+assert "sample.commit_growth = t->pagefile_growth_pages;" in driver
+assert service.count("sample.commit_growth = telemetry") == 2
+assert "SYSTEM_PAGEFILE_INFORMATION_EX_CLASS 144" in service
+assert "GetDiskFreeSpaceExW(volume, &free_bytes, NULL, NULL)" in service
 print("driver contract verification passed")

@@ -30,6 +30,7 @@ C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, sequence) == 8);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, service_pid) == 16);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, page_size) == 20);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, backing_reason) == 24);
+C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, pagefile_growth_pages) == 28);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, commit_charge_pages) == 32);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, commit_limit_pages) == 40);
 C_ASSERT(FIELD_OFFSET(OOM_TELEMETRY, available_physical_pages) == 48);
@@ -71,16 +72,21 @@ static BOOLEAN OomTelemetryValid(const OOM_TELEMETRY *t)
            t->sequence && t->service_pid > 4 && t->page_size >= 4096 &&
            t->page_size <= 65536 &&
            !(t->page_size & (t->page_size - 1)) && t->commit_limit_pages &&
-           t->backing_reason <= OOM_BACKING_KILL_REJECTED && !t->reserved;
+           t->backing_reason <= OOM_BACKING_KILL_REJECTED;
 }
 
+/* Headroom counts what the pagefiles can still grow by, exactly as the
+ * service's policy does: near the current limit of a growable pagefile is
+ * not exhaustion, and a kill or bugcheck there is premature. */
 static BOOLEAN OomTelemetryCritical(const OOM_TELEMETRY *t)
 {
-    ULONGLONG headroom = t->commit_charge_pages < t->commit_limit_pages
-                             ? t->commit_limit_pages - t->commit_charge_pages
-                             : 0;
+    OOM_SAMPLE sample;
+
+    sample.commit_charge = t->commit_charge_pages;
+    sample.commit_limit = t->commit_limit_pages;
+    sample.commit_growth = t->pagefile_growth_pages;
     return (t->flags & OOM_FLAG_CRITICAL) &&
-           headroom <= OOM_COMMIT_HEADROOM_BYTES / t->page_size;
+           OomCommitHeadroom(&sample) <= OOM_COMMIT_HEADROOM_BYTES / t->page_size;
 }
 
 static ULONG_PTR OomBackingParameter(const OOM_TELEMETRY *t)

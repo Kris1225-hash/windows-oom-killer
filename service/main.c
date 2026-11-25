@@ -28,6 +28,11 @@
 #define CRASH_QUERY_TIMEOUT_MS 5000u
 #define NOTIFIER_JOIN_MS 10000u
 #define ERROR_LOG_INTERVAL_MS 60000u
+/* NtQuerySystemInformation's SystemPageFileInformationEx: like the documented
+ * SYSTEM_PAGEFILE_INFORMATION, plus each pagefile's minimum and maximum size.
+ * Available since Windows 8. */
+#define SYSTEM_PAGEFILE_INFORMATION_EX_CLASS 144
+#define STATUS_INFO_LENGTH_MISMATCH_VALUE ((LONG)0xC0000004)
 
 static SERVICE_STATUS_HANDLE service_status_handle;
 static SERVICE_STATUS service_status;
@@ -283,6 +288,85 @@ static void Escalate(HANDLE device, const OOM_TELEMETRY *telemetry)
         LogMessage(EVENTLOG_ERROR_TYPE, L"escalation failed: win32 error %lu", GetLastError());
 }
 
+typedef struct PAGEFILE_INFORMATION_EX {
+    ULONG next_entry_offset;
+    ULONG total_size;  /* pages; all sizes are in pages */
+    ULONG total_in_use;
+    ULONG peak_usage;
+    USHORT name_length; /* bytes; a UNICODE_STRING, not null-terminated */
+    USHORT name_maximum_length;
+    PWSTR name;
+    ULONG minimum_size;
+    ULONG maximum_size;
+} PAGEFILE_INFORMATION_EX;
+
+typedef LONG(NTAPI *NT_QUERY_SYSTEM_INFORMATION)(ULONG, void *, ULONG, ULONG *);
+
+/* Pages the commit limit can still grow by: each pagefile's room up to its
+ * maximum size, capped by the free space on its volume. A system-managed
+ * pagefile (the windows default) sits a few hundred MiB above the charge and
+ * grows on demand, so without this the 512 MiB band is crossed long before
+ * commit is exhausted. A pagefile whose room cannot be measured counts as
+ * unable to grow, which keeps the old behaviour (current limit only). The
+ * buffer is static so a sample at the limit does not need new commit. */
+static BOOL PagefileGrowthPages(uint32_t page_size, uint64_t *growth)
+{
+    static NT_QUERY_SYSTEM_INFORMATION query;
+    static ULONGLONG buffer[2048]; /* 16 KiB: 16 pagefiles with MAX_PATH names */
+    ULONG returned = 0, offset = 0;
+    LONG status;
+
+    *growth = 0;
+    if (!query) {
+        HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
+        query = ntdll ? (NT_QUERY_SYSTEM_INFORMATION)(void *)GetProcAddress(
+                            ntdll, "NtQuerySystemInformation")
+                      : NULL;
+        if (!query) {
+            SetLastError(ERROR_PROC_NOT_FOUND);
+            return FALSE;
+        }
+    }
+    status = query(SYSTEM_PAGEFILE_INFORMATION_EX_CLASS, buffer, (ULONG)sizeof(buffer),
+                   &returned);
+    if (status < 0) {
+        SetLastError(status == STATUS_INFO_LENGTH_MISMATCH_VALUE ? ERROR_INSUFFICIENT_BUFFER
+                                                                : ERROR_NOT_SUPPORTED);
+        return FALSE;
+    }
+
+    while (returned >= sizeof(PAGEFILE_INFORMATION_EX) &&
+           offset <= returned - sizeof(PAGEFILE_INFORMATION_EX)) {
+        const PAGEFILE_INFORMATION_EX *info =
+            (const PAGEFILE_INFORMATION_EX *)((const BYTE *)buffer + offset);
+        uint64_t room = info->maximum_size > info->total_size
+                            ? (uint64_t)info->maximum_size - info->total_size
+                            : 0;
+        wchar_t path[MAX_PATH], volume[MAX_PATH];
+        const wchar_t *name = info->name;
+        size_t chars = info->name_length / sizeof(wchar_t);
+        ULARGE_INTEGER free_bytes;
+
+        /* "\??\C:\pagefile.sys" -> "C:\pagefile.sys" */
+        if (chars >= 4 && !wcsncmp(name, L"\\??\\", 4)) {
+            name += 4;
+            chars -= 4;
+        }
+        if (room && chars && chars < ARRAYSIZE(path) &&
+            wcsncpy_s(path, ARRAYSIZE(path), name, chars) == 0 &&
+            GetVolumePathNameW(path, volume, ARRAYSIZE(volume)) &&
+            GetDiskFreeSpaceExW(volume, &free_bytes, NULL, NULL)) {
+            if (room > free_bytes.QuadPart / page_size)
+                room = free_bytes.QuadPart / page_size;
+            *growth += room;
+        }
+        if (!info->next_entry_offset)
+            break;
+        offset += info->next_entry_offset;
+    }
+    return TRUE;
+}
+
 typedef struct PAGEFILE_TOTALS {
     uint64_t total_pages;
     uint64_t used_pages;
@@ -308,6 +392,8 @@ static BOOL CollectTelemetry(OOM_TELEMETRY *telemetry, uint64_t sequence,
     PAGEFILE_TOTALS pagefiles = {0};
     BOOL pagefiles_known;
     OOM_SAMPLE sample;
+    uint64_t growth = 0;
+    static ULONGLONG next_growth_error;
 
     if (!GetPerformanceInfo(&performance, (DWORD)sizeof(performance)))
         return FALSE;
@@ -326,9 +412,19 @@ static BOOL CollectTelemetry(OOM_TELEMETRY *telemetry, uint64_t sequence,
     else
         telemetry->pagefile_free_pages = 0;
     telemetry->flags = armed ? OOM_FLAG_ARMED : 0;
+    if (!PagefileGrowthPages(telemetry->page_size, &growth) &&
+        GetTickCount64() >= next_growth_error) {
+        LogMessage(EVENTLOG_WARNING_TYPE,
+                   L"cannot measure how far the pagefiles can grow (win32 error %lu); "
+                   L"judging headroom against the current commit limit only",
+                   GetLastError());
+        next_growth_error = GetTickCount64() + ERROR_LOG_INTERVAL_MS;
+    }
+    telemetry->pagefile_growth_pages = growth > UINT32_MAX ? UINT32_MAX : (uint32_t)growth;
 
     sample.commit_charge = telemetry->commit_charge_pages;
     sample.commit_limit = telemetry->commit_limit_pages;
+    sample.commit_growth = telemetry->pagefile_growth_pages;
     if (OomSampleIsCritical(thresholds, &sample))
         telemetry->flags |= OOM_FLAG_CRITICAL;
 
@@ -540,6 +636,7 @@ static DWORD RunMonitor(void)
         }
         sample.commit_charge = telemetry.commit_charge_pages;
         sample.commit_limit = telemetry.commit_limit_pages;
+        sample.commit_growth = telemetry.pagefile_growth_pages;
         action = armed ? OomPolicyObserve(&policy, &thresholds, &sample) : OOM_ACTION_NONE;
         if (!(telemetry.flags & OOM_FLAG_CRITICAL)) {
             kill_failures = 0;

@@ -3,7 +3,7 @@
 
 #include "oom_types.h"
 
-#define OOM_PROTOCOL_VERSION 1u
+#define OOM_PROTOCOL_VERSION 2u
 #define OOM_DEVICE_PATH L"\\\\.\\WinOomKiller"
 
 #define OOM_FLAG_ARMED    0x00000001u
@@ -41,7 +41,9 @@ typedef struct OOM_TELEMETRY {
     OOM_U32 service_pid;
     OOM_U32 page_size;
     OOM_U32 backing_reason;
-    OOM_U32 reserved;
+    /* how far the pagefiles can still grow the commit limit, saturated: the
+     * headroom that counts is (limit + growth) - charge, not limit - charge */
+    OOM_U32 pagefile_growth_pages;
     OOM_U64 commit_charge_pages;
     OOM_U64 commit_limit_pages;
     OOM_U64 available_physical_pages;
