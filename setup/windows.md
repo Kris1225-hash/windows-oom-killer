@@ -94,8 +94,11 @@ in a normal shell inside the vm:
 ```
 
 the hog allocates in 64 MiB chunks, touches every page (so it really
-commits), prints its pid, and holds until ctrl-c. with a small enough
-pagefile the commit headroom drops below `CommitHeadroomMiB` and, after
+commits), prints its pid, and holds until ctrl-c. headroom counts what the
+pagefiles can still grow by, so with a system-managed pagefile nothing
+happens until the pagefile has grown to its maximum; a fixed-size pagefile
+(minimum = maximum) makes the test quicker. once the commit headroom drops
+below `CommitHeadroomMiB` and, after
 `ConfirmationSamples`, the service asks the driver to terminate the
 largest eligible private-commit process. that is the hog only if it is
 the largest eligible process on the machine: close other large apps or
@@ -106,7 +109,7 @@ driver's `STATUS_NO_MEMORY` termination code (check the
 `terminated pid <n>` line), a popup appears in its session naming
 process, pid, reason, and private usage, the `WinOomKiller` event source
 logs the kill, and commit headroom recovers without a reboot. if nothing
-dies: check `Armed`, pagefile size vs. `CommitHeadroomMiB`, and that a
+dies: check `Armed`, the pagefile's maximum size vs. `CommitHeadroomMiB`, and that a
 candidate is not session 0, protected/critical, or under the driver's
 64 MiB victim floor.
 

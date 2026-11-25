@@ -2,7 +2,7 @@
 
 a small windows service and kmdf control driver that recover from commit exhaustion before the machine falls over.
 
-the service uses documented win32 memory counters to detect low commit headroom. it picks the non-critical, non-protected, non-session-0 process with the largest private commit. the driver validates that request, rejects the system process, protected processes, and critical processes, checks the pid creation time against reuse, and calls `ZwTerminateProcess`.
+the service uses documented win32 memory counters to detect low commit headroom. headroom is measured against the commit limit the pagefiles can still grow to, not the current one: a system-managed pagefile (the windows default) keeps the current limit only a few hundred mib above the charge and grows on demand, so the current limit alone is not exhaustion. it picks the non-critical, non-protected, non-session-0 process with the largest private commit. the driver validates that request, rejects the system process, protected processes, and critical processes, checks the pid creation time against reuse, and calls `ZwTerminateProcess`.
 
 if a victim does not exit within five seconds, three recovery kills do not clear pressure, the monitor stops responding during critical pressure, or no safe victim exists, the driver calls `KeBugCheckEx`. the driver also watches windows' `\KernelObjects\MaximumCommitCondition`, so a crashed service still escalates to a bugcheck once commit is exhausted (inside the headroom band, only the live service can act).
 
@@ -11,6 +11,8 @@ after a successful recovery kill, the service displays a popup in the affected u
 after a custom OOM bugcheck and reboot, the service translates the latest Windows bugcheck event and displays the friendly reason and all four parameters in the active console session (an RDP-only logon does not get it) once one is available. each crash is reported at most once: `LastNotifiedBugcheckRecord` is best-effort, and a WER event written after the ten-minute boot window is reported on a later boot.
 
 the split is deliberate. windows exposes good supported memory and per-process commit APIs to user mode. putting undocumented memory-manager structures in the driver would make it version-fragile for no gain. the watchdog and final recovery path remain in the kernel.
+
+one input has no documented source: how far each pagefile can still grow. the service reads each pagefile's maximum size with `NtQuerySystemInformation(SystemPageFileInformationEx)` (available since windows 8), caps that room by the free space on the pagefile's volume, and sends it to the driver with every heartbeat. if the query fails, the room counts as zero and headroom falls back to the current commit limit, which kills earlier than necessary on a growable pagefile but never later.
 
 ## bugchecks
 
