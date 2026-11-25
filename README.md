@@ -12,7 +12,7 @@ after a custom OOM bugcheck and reboot, the service translates the latest Window
 
 the split is deliberate. windows exposes good supported memory and per-process commit APIs to user mode. putting undocumented memory-manager structures in the driver would make it version-fragile for no gain. the watchdog and final recovery path remain in the kernel.
 
-one input has no documented source: how far each pagefile can still grow. the service reads each pagefile's maximum size with `NtQuerySystemInformation(SystemPageFileInformationEx)` (available since windows 8), caps that room by the free space on the pagefile's volume, and sends it to the driver with every heartbeat. if the query fails, the room counts as zero and headroom falls back to the current commit limit, which kills earlier than necessary on a growable pagefile but never later.
+one input has no documented source: how far each pagefile can still grow. the service reads each pagefile's maximum size with `NtQuerySystemInformation(SystemPageFileInformationEx)` (available since windows 8), caps that room by the free space left on the pagefile's volume, and sends it to the driver with every heartbeat. windows keeps a little of the volume free (about 245 mib in the test vm), which stays inside the 512 mib band. once windows signals `MaximumCommitCondition`, both the service and the driver ignore the room. a pagefile whose room cannot be measured counts as unable to grow, which kills earlier than necessary on a growable pagefile but never later.
 
 ## bugchecks
 

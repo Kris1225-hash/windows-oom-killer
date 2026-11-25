@@ -208,6 +208,7 @@ Unregister-ScheduledTask WinOomKillerBugcheckTests -Confirm:$false -ErrorAction 
 |---|---|
 | `driver rejected kill of pid N: win32 error 5` | driver rejected the victim: protected/critical, system process, pid ≤ 4, the service itself, under 64 MiB private, pid create-time mismatch (reuse), or telemetry not critical/armed |
 | `driver rejected kill of pid N: win32 error 87` | the victim exited or the request was invalid; the service offers a different victim next sample |
+| `driver heartbeat failed: win32 error 87` | the driver and the service come from different builds (the protocol version changed); reinstall both from one package |
 | `driver heartbeat failed: win32 error 1237` | stale or duplicate telemetry sequence number; the service increments per sample |
 | `ignoring setting ...` in the event log | that value is not a `REG_DWORD`; the service used the default (for `Armed`, disarmed) |
 | `the driver declined to escalate` | pressure was below the driver's ceiling when the service asked for a bugcheck |

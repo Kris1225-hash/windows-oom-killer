@@ -116,8 +116,17 @@ assert "sample_ms >= SLOW_SAMPLE_MS" in service
 # not commit exhaustion
 assert "#define OOM_PROTOCOL_VERSION 2u" in header
 assert "OomCommitHeadroom(&sample) <= OOM_COMMIT_HEADROOM_BYTES / t->page_size" in driver
-assert "sample.commit_growth = t->pagefile_growth_pages;" in driver
+# once windows says commit cannot grow, neither side trusts measured growth room
+assert "OomMaximumCommitReached(ctx) ? 0 : t->pagefile_growth_pages" in driver
+assert driver.count("OomTelemetryCritical(ctx, ") == 4
+assert "if (MaximumCommitReached())\n        growth = 0;" in service
 assert service.count("sample.commit_growth = telemetry") == 2
 assert "SYSTEM_PAGEFILE_INFORMATION_EX_CLASS 144" in service
-assert "GetDiskFreeSpaceExW(volume, &free_bytes, NULL, NULL)" in service
+assert "C_ASSERT(sizeof(PAGEFILE_INFORMATION_EX) == 40);" in service
+# free space is measured on the pagefile's own volume, once per volume
+assert "path[1] = L'\\\\';" in service
+assert "GetVolumeNameForVolumeMountPointW(volume, key, ARRAYSIZE(key))" in service
+assert "room_on_volume->free_pages -= room;" in service
+# the commit limit and the pagefile sizes describe the same moment
+assert "consistent = after.total == before.total;" in service
 print("driver contract verification passed")
